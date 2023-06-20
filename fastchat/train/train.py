@@ -14,6 +14,7 @@
 #    limitations under the License.
 
 import copy
+import os.path
 from dataclasses import dataclass, field
 import json
 import pathlib
@@ -253,6 +254,11 @@ def train():
     )
     tokenizer.pad_token = tokenizer.unk_token
 
+    print("#" * 20, " local_rank ", "#" * 20, "\n", local_rank, sep='')
+    print("#" * 20, " model_args ", "#" * 20, "\n", model_args, sep='')
+    print("#" * 20, " data_args ", "#" * 20, "\n", data_args, sep='')
+    print("#" * 20, " training_args ", "#" * 20, "\n", training_args, sep='')
+
     data_module = make_supervised_data_module(tokenizer=tokenizer, data_args=data_args)
     trainer = Trainer(
         model=model, tokenizer=tokenizer, args=training_args, **data_module
@@ -262,8 +268,12 @@ def train():
         trainer.train(resume_from_checkpoint=True)
     else:
         trainer.train()
-    trainer.save_state()
-    safe_save_model_for_hf_trainer(trainer=trainer, output_dir=training_args.output_dir)
+
+    # trainer.save_state()
+    # safe_save_model_for_hf_trainer(trainer=trainer, output_dir=training_args.output_dir)
+    final_model_path = os.path.join(training_args.output_dir, "final")
+    tokenizer.save_pretrained(final_model_path)
+    trainer.save_model(final_model_path)
 
 
 if __name__ == "__main__":
