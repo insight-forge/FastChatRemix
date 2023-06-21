@@ -58,7 +58,7 @@ def html_to_markdown(val: str) -> str:
     val = re.sub(copy_code_pattern, "", val)
 
     # Strip
-    val = val.replace("\n\n\n", "\n").replace(u'\ufeff',"").replace(u'\u200b',"").strip()
+    val = val.replace("\n\n\n", "\n").replace(u'\ufeff', "").replace(u'\u200b', "").strip()
 
     return val
 
