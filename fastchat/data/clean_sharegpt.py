@@ -26,7 +26,7 @@ code_lang_format = "```\g<1>\n\g<2>\n```"
 regenerate_pattern = re.compile("\d+ / \d+")
 copy_chars_pattern = re.compile("Copy\d+ chars / \d+ words")
 copy_code_pattern = re.compile("```(.*?)Copy code\s*```")
-
+start_with_punctuation = re.compile("^(,|\.) ")
 
 def reformat_code(val: str) -> str:
     # Input code format is:
@@ -56,6 +56,8 @@ def html_to_markdown(val: str) -> str:
     val = re.sub(copy_chars_pattern, "", val)
     # Remove empty code block ```\nCopy code\n```
     val = re.sub(copy_code_pattern, "", val)
+
+    val = re.sub(start_with_punctuation, "", val)
 
     # Strip
     val = val.replace("\n\n\n", "\n").replace(u'\ufeff', "").replace(u'\u200b', "").strip(" \n,")
