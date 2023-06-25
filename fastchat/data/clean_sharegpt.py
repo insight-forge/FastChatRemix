@@ -74,6 +74,19 @@ def contain_blocked_words(val: str) -> bool:
 def clean_html_one_sample(sample):
     roles = ["human", "gpt"]
 
+    convs_len = len(sample["conversations"])
+    for i, c in enumerate(sample["conversations"]):
+        try:
+            new_val = html_to_markdown(c["value"])
+        except (bs4.builder.ParserRejectedMarkup, AssertionError):
+            return (sample, 4)
+
+        c["value"] = new_val
+        if not c["value"]:
+            convs_len = i
+            break
+    sample["conversations"] = sample["conversations"][: convs_len]
+
     if len(sample["conversations"]) <= 1:
         return (sample, 1)
 
@@ -95,12 +108,12 @@ def clean_html_one_sample(sample):
         if contain_blocked_words(c["value"]):
             return (sample, 3)
 
-        try:
-            new_val = html_to_markdown(c["value"])
-        except (bs4.builder.ParserRejectedMarkup, AssertionError):
-            return (sample, 4)
-
-        c["value"] = new_val
+        # try:
+        #     new_val = html_to_markdown(c["value"])
+        # except (bs4.builder.ParserRejectedMarkup, AssertionError):
+        #     return (sample, 4)
+        #
+        # c["value"] = new_val
 
     return (sample, 0)
 
