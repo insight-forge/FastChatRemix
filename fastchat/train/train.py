@@ -215,7 +215,10 @@ def make_supervised_data_module(
         LazySupervisedDataset if data_args.lazy_preprocess else SupervisedDataset
     )
     rank0_print("Loading data...")
-    raw_data = json.load(open(data_args.data_path, "r"))
+    raw_data = []
+    for path in data_args.data_path.split(','):
+        raw_data.extend(json.load(open(path, "r")))
+    # raw_data = json.load(open(data_args.data_path, "r"))
 
     # Split train/test
     np.random.seed(0)
