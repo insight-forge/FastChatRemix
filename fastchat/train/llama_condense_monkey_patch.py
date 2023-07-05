@@ -2,10 +2,9 @@
 import torch
 import transformers
 import transformers.models.llama.modeling_llama
-from einops import rearrange
 
 from functools import partial
-from ..utils import rank0_print
+from fastchat.train.train import rank0_print
 
 class CondenseRotaryEmbedding(torch.nn.Module):
     def __init__(self, dim, ratio, max_position_embeddings=2048, base=10000, device=None):
