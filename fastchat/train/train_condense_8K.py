@@ -3,7 +3,7 @@
 # Need to call this before importing transformers.
 from fastchat.train.llama_condense_monkey_patch import replace_llama_with_condense
 
-replace_llama_with_condense(ratio=8)
+replace_llama_with_condense(ratio=4)
 
 from fastchat.train.llama_flash_attn_monkey_patch import replace_llama_attn_with_flash_attn
 
