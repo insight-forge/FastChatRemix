@@ -22,7 +22,6 @@ from fastchat.serve.gradio_block_arena_named import (
     load_demo_side_by_side_named,
     set_global_vars_named,
 )
-from fastchat.serve.gradio_patch import Chatbot as grChatbot
 from fastchat.serve.gradio_web_server import (
     set_global_vars,
     block_css,
@@ -86,7 +85,7 @@ def load_demo(url_params, request: gr.Request):
     )
 
 
-def build_demo(models, elo_results_file):
+def build_demo(models, elo_results_file, leaderboard_table_file):
     with gr.Blocks(
         title="Chat with Open Large Language Models",
         theme=gr.themes.Base(),
@@ -102,7 +101,7 @@ def build_demo(models, elo_results_file):
                     a_send_btn,
                     a_button_row,
                     a_parameter_row,
-                ) = build_single_model_ui(models)
+                ) = build_single_model_ui(models, add_promotion_links=True)
                 a_list = [
                     a_state,
                     a_model_selector,
@@ -163,7 +162,7 @@ def build_demo(models, elo_results_file):
 
             if elo_results_file:
                 with gr.Tab("Leaderboard", id=3):
-                    build_leaderboard_tab(elo_results_file)
+                    build_leaderboard_tab(elo_results_file, leaderboard_table_file)
 
         url_params = gr.JSON(visible=False)
 
@@ -237,6 +236,7 @@ if __name__ == "__main__":
         default=None,
     )
     parser.add_argument("--elo-results-file", type=str)
+    parser.add_argument("--leaderboard-table-file", type=str)
     args = parser.parse_args()
     logger.info(f"args: {args}")
 
@@ -257,7 +257,7 @@ if __name__ == "__main__":
         auth = parse_gradio_auth_creds(args.gradio_auth_path)
 
     # Launch the demo
-    demo = build_demo(models, args.elo_results_file)
+    demo = build_demo(models, args.elo_results_file, args.leaderboard_table_file)
     demo.queue(
         concurrency_count=args.concurrency_count, status_update_rate=10, api_open=False
     ).launch(

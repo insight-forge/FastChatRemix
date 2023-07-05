@@ -49,12 +49,21 @@ def display_answer(
     gamekey = (qid, model_selector1, model_selector2)
 
     judgment_dict = resolve_default_judgment_dict(
-        q, model_judgments_normal, model_judgments_math
+        q, model_judgments_normal, model_judgments_math, multi_turn=False
     )
     explanation = "##### Model Judgment (first turn)\n" + get_model_judge_explanation(
         gamekey, judgment_dict
     )
-    return chat_mds + [explanation]
+
+    judgment_dict_turn_2 = resolve_default_judgment_dict(
+        q, model_judgments_normal, model_judgments_math, multi_turn=True
+    )
+    explanation_turn_2 = (
+        "##### Model Judgment (second turn)\n"
+        + get_model_judge_explanation(gamekey, judgment_dict_turn_2)
+    )
+
+    return chat_mds + [explanation] + [explanation_turn_2]
 
 
 newline_pattern1 = re.compile("\n\n(\d+\. )")
@@ -156,20 +165,21 @@ def build_pairwise_browser_tab():
     chat_mds.append(reference)
 
     model_explanation = gr.Markdown(elem_id="model_explanation")
+    model_explanation_2 = gr.Markdown(elem_id="model_explanation")
 
     # Callbacks
     category_selector.change(display_question, [category_selector], [question_selector])
     question_selector.change(
         display_answer,
         [question_selector] + model_selectors,
-        chat_mds + [model_explanation],
+        chat_mds + [model_explanation] + [model_explanation_2],
     )
 
     for i in range(num_sides):
         model_selectors[i].change(
             display_answer,
             [question_selector] + model_selectors,
-            chat_mds + [model_explanation],
+            chat_mds + [model_explanation] + [model_explanation_2],
         )
 
     return (category_selector,)
@@ -200,10 +210,16 @@ def load_demo():
 
 def build_demo():
     with gr.Blocks(
-        title="QA Browser",
+        title="MT-Bench Browser",
         theme=gr.themes.Base(text_size=gr.themes.sizes.text_lg),
         css=block_css,
     ) as demo:
+        gr.Markdown(
+            """
+# MT-Bench Browser
+The code to generate answers and judgments is at [fastchat.llm_judge](https://github.com/lm-sys/FastChat/tree/main/fastchat/llm_judge).
+"""
+        )
         (category_selector,) = build_pairwise_browser_tab()
 
         demo.load(load_demo, [], [category_selector])
