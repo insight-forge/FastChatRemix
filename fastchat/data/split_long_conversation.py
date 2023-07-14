@@ -121,6 +121,7 @@ def main(args):
         model_max_length=args.max_length,
         padding_side="right",
         use_fast=False,
+        trust_remote_code=True
     )
     new_content = split_all(content, args.begin, args.end, tokenizer, args.max_length)
     new_content = filter_invalid_roles(new_content)
