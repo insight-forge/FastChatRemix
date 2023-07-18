@@ -35,8 +35,6 @@ from fastchat.serve.api_provider import (
     palm_api_stream_iter,
     init_palm_chat,
 )
-from fastchat.serve.gradio_patch import Chatbot as grChatbot
-from fastchat.serve.gradio_css import code_highlight_css
 from fastchat.utils import (
     build_logger,
     violates_moderation,
@@ -340,11 +338,9 @@ def bot_response(state, temperature, top_p, max_new_tokens, request: gr.Request)
             )
             return
 
-        # Construct prompt
-        if "chatglm" in model_name:
-            prompt = list(list(x) for x in conv.messages[conv.offset :])
-        else:
-            prompt = conv.get_prompt()
+        # Construct prompt.
+        # We need to call it here, so it will not be affected by "▌".
+        prompt = conv.get_prompt()
 
         # Set repetition_penalty
         if "t5" in model_name:
@@ -438,29 +434,28 @@ def bot_response(state, temperature, top_p, max_new_tokens, request: gr.Request)
         fout.write(json.dumps(data) + "\n")
 
 
-block_css = (
-    code_highlight_css
-    + """
-pre {
-    white-space: pre-wrap;       /* Since CSS 2.1 */
-    white-space: -moz-pre-wrap;  /* Mozilla, since 1999 */
-    white-space: -pre-wrap;      /* Opera 4-6 */
-    white-space: -o-pre-wrap;    /* Opera 7 */
-    word-wrap: break-word;       /* Internet Explorer 5.5+ */
+block_css = """
+#notice_markdown {
+    font-size: 104%
 }
 #notice_markdown th {
     display: none;
 }
 #notice_markdown td {
-    padding-top: 8px;
-    padding-bottom: 8px;
+    padding-top: 6px;
+    padding-bottom: 6px;
+}
+#leaderboard_markdown {
+    font-size: 104%
 }
 #leaderboard_markdown td {
-    padding-top: 8px;
-    padding-bottom: 8px;
+    padding-top: 6px;
+    padding-bottom: 6px;
+}
+#leaderboard_dataframe td {
+    line-height: 0.1em;
 }
 """
-)
 
 
 def get_model_description_md(models):
@@ -492,11 +487,19 @@ def get_model_description_md(models):
     return model_description_md
 
 
-def build_single_model_ui(models):
-    notice_markdown = """
-# 🏔️ Chat with Open Large Language Models
+def build_single_model_ui(models, add_promotion_links=False):
+    promotion = (
+        """
 - Vicuna: An Open-Source Chatbot Impressing GPT-4 with 90% ChatGPT Quality. [[Blog]](https://lmsys.org/blog/2023-03-30-vicuna/)
-- [[GitHub]](https://github.com/lm-sys/FastChat) [[Twitter]](https://twitter.com/lmsysorg) [[Discord]](https://discord.gg/HSWAKCrnFx)
+- | [GitHub](https://github.com/lm-sys/FastChat) | [Twitter](https://twitter.com/lmsysorg) | [Discord](https://discord.gg/HSWAKCrnFx) |
+"""
+        if add_promotion_links
+        else ""
+    )
+
+    notice_markdown = f"""
+# 🏔️ Chat with Open Large Language Models
+{promotion}
 
 ### Terms of use
 By using this service, users are required to agree to the following terms: The service is a research preview intended for non-commercial use only. It only provides limited safety measures and may generate offensive content. It must not be used for any illegal, harmful, violent, racist, or sexual purposes. **The service collects user dialogue data and reserves the right to distribute it under a Creative Commons Attribution (CC-BY) license.**
@@ -514,18 +517,23 @@ By using this service, users are required to agree to the following terms: The s
             value=models[0] if len(models) > 0 else "",
             interactive=True,
             show_label=False,
-        ).style(container=False)
+            container=False,
+        )
 
-    chatbot = grChatbot(
-        elem_id="chatbot", label="Scroll down and start chatting", visible=False
-    ).style(height=550)
+    chatbot = gr.Chatbot(
+        elem_id="chatbot",
+        label="Scroll down and start chatting",
+        visible=False,
+        height=550,
+    )
     with gr.Row():
         with gr.Column(scale=20):
             textbox = gr.Textbox(
                 show_label=False,
                 placeholder="Enter text and press ENTER",
                 visible=False,
-            ).style(container=False)
+                container=False,
+            )
         with gr.Column(scale=1, min_width=50):
             send_btn = gr.Button(value="Send", visible=False)
 
