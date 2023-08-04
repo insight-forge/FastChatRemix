@@ -250,7 +250,7 @@ def train():
     # Load model and tokenizer
     model = transformers.AutoModelForCausalLM.from_pretrained(
         model_args.model_name_or_path,
-        use_flash_attn=model_args.model_args,
+        use_flash_attn=model_args.use_flash_attn,
         config=config,
         cache_dir=training_args.cache_dir,
         trust_remote_code=True
