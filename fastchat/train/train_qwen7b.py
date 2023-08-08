@@ -116,10 +116,7 @@ def preprocess(
         if len(starts) == len(ends) and len(source) != len(starts) - 1:
             target[:] = IGNORE_TOKEN_ID
             rank0_print(
-                f"WARNING: starts: {starts}"
-                f"WARNING: starts: {starts}"
-                f"WARNING: conversation: {conversation}"
-                f"WARNING: special tokenization mismatch: len(source): {len(source)}. len(starts): {len(starts)}"
+                f"WARNING: special tokenization mismatch: len(source): {len(source)}, len(starts): {len(starts)}, len(ends): {len(ends)}"
                 f" (ignored)"
             )
             continue
@@ -130,7 +127,7 @@ def preprocess(
                 target[end + 1: end + 3] = IGNORE_TOKEN_ID
             else:
                 target[start: end + 3] = IGNORE_TOKEN_ID
-
+        # target[:starts[0]] = IGNORE_TOKEN_ID
         target[ends[-1]+1:] = IGNORE_TOKEN_ID
 
         if False:  # Inspect and check the correctness of masking
