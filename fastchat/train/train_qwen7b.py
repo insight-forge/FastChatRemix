@@ -134,9 +134,9 @@ def preprocess(
                 target[start: start + 3] = IGNORE_TOKEN_ID
                 target[end + 1: end + 3] = IGNORE_TOKEN_ID
             else:
-                target[start: end + 2] = IGNORE_TOKEN_ID
+                target[start: end + 3] = IGNORE_TOKEN_ID
 
-        # target[ends[-1]:] = IGNORE_TOKEN_ID
+        target[ends[-1]+1:] = IGNORE_TOKEN_ID
 
         if True:  # Inspect and check the correctness of masking
             z = target.clone()
