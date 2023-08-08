@@ -27,6 +27,7 @@ class SeparatorStyle(IntEnum):
     RWKV = auto()
     PHOENIX = auto()
     ROBIN = auto()
+    QWEN = auto()
 
 
 @dataclasses.dataclass
@@ -196,6 +197,15 @@ class Conversation:
                     ret += role + ":\n" + message + self.sep
                 else:
                     ret += role + ":\n"
+            return ret
+        elif self.sep_style == SeparatorStyle.QWEN:
+            ret = "" if system_prompt == "" else self.sep + "system\n" + system_prompt + self.sep2
+            # ret = "" if system_prompt == "" else system_prompt + "\n"
+            for i, (role, message) in enumerate(self.messages):
+                if message:
+                    ret += self.sep + role + message + self.sep2
+                else:
+                    ret += self.sep + role + "\n"
             return ret
         else:
             raise ValueError(f"Invalid style: {self.sep_style}")
@@ -878,9 +888,24 @@ register_conv_template(
     )
 )
 
+# Qwen-7B template
+register_conv_template(
+    Conversation(
+        name="qwen-7B",
+        system_message="You are a helpful assistant.",
+        roles=("user\n", "assistant\n"),
+        messages=(),
+        offset=0,
+        sep_style=SeparatorStyle.QWEN,
+        sep="<|im_start|>",
+        sep2="<|im_end|>\n",
+
+    )
+)
+
 if __name__ == "__main__":
     print("Vicuna template:")
-    conv = get_conv_template("vicuna_v1.1")
+    conv = get_conv_template("qwen-7B")
     conv.append_message(conv.roles[0], "Hello!")
     conv.append_message(conv.roles[1], "Hi!")
     conv.append_message(conv.roles[0], "How are you?")
@@ -888,12 +913,12 @@ if __name__ == "__main__":
     print(conv.get_prompt())
 
     print("\n")
-
-    print("Llama-2 template:")
-    conv = get_conv_template("llama-2")
-    conv.set_system_message("You are a helpful, respectful and honest assistant.")
-    conv.append_message(conv.roles[0], "Hello!")
-    conv.append_message(conv.roles[1], "Hi!")
-    conv.append_message(conv.roles[0], "How are you?")
-    conv.append_message(conv.roles[1], None)
-    print(conv.get_prompt())
+    #
+    # print("Llama-2 template:")
+    # conv = get_conv_template("llama-2")
+    # conv.set_system_message("You are a helpful, respectful and honest assistant.")
+    # conv.append_message(conv.roles[0], "Hello!")
+    # conv.append_message(conv.roles[1], "Hi!")
+    # conv.append_message(conv.roles[0], "How are you?")
+    # conv.append_message(conv.roles[1], None)
+    # print(conv.get_prompt())

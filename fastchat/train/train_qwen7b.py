@@ -17,6 +17,7 @@
 from dataclasses import dataclass, field
 import json
 import math
+import os
 import pathlib
 from typing import Dict, Optional, Sequence
 
@@ -82,17 +83,16 @@ def preprocess(
     sources,
     tokenizer: transformers.PreTrainedTokenizer,
 ) -> Dict:
-    conv = get_conversation_template("vicuna")
+    conv = get_conversation_template("qwen-7B")
     roles = {"human": conv.roles[0], "gpt": conv.roles[1]}
 
     # Apply prompt templates
     conversations = []
     for i, source in enumerate(sources):
-        if roles[source[0]["from"]] != conv.roles[0]:
+        if source[0]["from"] != "human":
             # Skip the first one if it is not from human
             source = source[1:]
 
-        conv.messages = []
         for j, sentence in enumerate(source):
             role = roles[sentence["from"]]
             assert role == conv.roles[j % 2], f"{i}"
@@ -109,46 +109,40 @@ def preprocess(
     ).input_ids
     targets = input_ids.clone()
 
-    assert conv.sep_style == SeparatorStyle.ADD_COLON_TWO
-
     # Mask targets. Only compute loss on the assistant outputs.
-    sep = conv.sep + conv.roles[1] + ": "
-    for conversation, target in zip(conversations, targets):
-        total_len = int(target.ne(tokenizer.pad_token_id).sum())
+    # sep = conv.sep + conv.roles[1] + ": "
+    for source, conversation, target in zip(sources, conversations, targets):
+        starts = (target == tokenizer.im_start_id).nonzero(as_tuple=False)
+        ends = (target == tokenizer.im_end_id).nonzero(as_tuple=False)
+        if len(starts) == len(ends) and len(source) != len(starts) - 1:
+            target[:] = IGNORE_TOKEN_ID
+            rank0_print(
+                f"WARNING: special tokenization mismatch."
+                f" (ignored)"
+            )
+            print(
+                f"WARNING: starts: {starts}"
+                f"WARNING: starts: {starts}"
+                f"WARNING: conversation: {conversation}"
+                f"WARNING: special tokenization mismatch: len(source): {len(source)}. len(starts): {len(starts)}"
+                f" (ignored)"
+            )
+            continue
 
-        turns = conversation.split(conv.sep2)
-        cur_len = 1
-        target[:cur_len] = IGNORE_TOKEN_ID
-        for i, turn in enumerate(turns):
-            if turn == "":
-                break
-            turn_len = len(tokenizer(turn).input_ids)
+        for i, (start, end) in enumerate(zip(starts, ends)):
+            if i > 0 and i % 2 == 0:
+                target[start: start + 3] = IGNORE_TOKEN_ID
+                target[end + 1: end + 3] = IGNORE_TOKEN_ID
+            else:
+                target[start: end + 2] = IGNORE_TOKEN_ID
 
-            parts = turn.split(sep)
-            if len(parts) != 2:
-                break
-            parts[0] += sep
-            # "-2" is hardcoded for the LLaMA tokenizer to make the offset correct.
-            instruction_len = len(tokenizer(parts[0]).input_ids) - 2
+        # target[ends[-1]:] = IGNORE_TOKEN_ID
 
-            # Ignore the user instructions
-            target[cur_len : cur_len + instruction_len] = IGNORE_TOKEN_ID
-            cur_len += turn_len
-
-        target[cur_len:] = IGNORE_TOKEN_ID
-
-        if False:  # Inspect and check the correctness of masking
+        if True:  # Inspect and check the correctness of masking
             z = target.clone()
-            z = torch.where(z == IGNORE_TOKEN_ID, tokenizer.unk_token_id, z)
+            z = torch.where(z == IGNORE_TOKEN_ID, tokenizer.pad_token_id, z)
             rank0_print(tokenizer.decode(z))
-
-        if cur_len < tokenizer.model_max_length:
-            if cur_len != total_len:
-                target[:] = IGNORE_TOKEN_ID
-                rank0_print(
-                    f"WARNING: tokenization mismatch: {cur_len} vs. {total_len}."
-                    f" (ignored)"
-                )
+            print(tokenizer.decode(z))
 
     return dict(
         input_ids=input_ids,
@@ -262,7 +256,10 @@ def train():
         use_fast=False,
         trust_remote_code=True
     )
-    tokenizer.pad_token = tokenizer.unk_token
+
+    # https://github.com/QwenLM/Qwen-7B/blob/main/examples/tokenizer_showcase.ipynb
+    tokenizer.eos_token_id = tokenizer.eod_id
+    tokenizer.pad_token_id = tokenizer.special_tokens['<|extra_0|>']
 
     # Load data
     data_module = make_supervised_data_module(tokenizer=tokenizer, data_args=data_args)
