@@ -236,7 +236,6 @@ def train():
     config = transformers.AutoConfig.from_pretrained(
         model_args.model_name_or_path,
         cache_dir=training_args.cache_dir,
-        fp16=True,
         trust_remote_code=True,
         use_flash_attn=model_args.use_flash_attn
     )
