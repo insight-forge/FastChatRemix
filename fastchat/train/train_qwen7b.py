@@ -233,11 +233,18 @@ def train():
     model_args, data_args, training_args = parser.parse_args_into_dataclasses()
     local_rank = training_args.local_rank
 
+    config = transformers.AutoConfig.from_pretrained(
+        model_args.model_name_or_path,
+        cache_dir=training_args.cache_dir,
+        fp16=True,
+        trust_remote_code=True,
+        use_flash_attn=model_args.use_flash_attn
+    )
     # Load model and tokenizer
     model = transformers.AutoModelForCausalLM.from_pretrained(
         model_args.model_name_or_path,
         cache_dir=training_args.cache_dir,
-        fp16=True,
+        config=config,
         trust_remote_code=True
     )
     tokenizer = transformers.AutoTokenizer.from_pretrained(
