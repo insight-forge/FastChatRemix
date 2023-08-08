@@ -92,7 +92,7 @@ def preprocess(
         if source[0]["from"] != "human":
             # Skip the first one if it is not from human
             source = source[1:]
-
+        conv.messages = []
         for j, sentence in enumerate(source):
             role = roles[sentence["from"]]
             assert role == conv.roles[j % 2], f"{i}"
