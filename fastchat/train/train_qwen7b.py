@@ -110,17 +110,12 @@ def preprocess(
     targets = input_ids.clone()
 
     # Mask targets. Only compute loss on the assistant outputs.
-    # sep = conv.sep + conv.roles[1] + ": "
     for source, conversation, target in zip(sources, conversations, targets):
         starts = (target == tokenizer.im_start_id).nonzero(as_tuple=False)
         ends = (target == tokenizer.im_end_id).nonzero(as_tuple=False)
         if len(starts) == len(ends) and len(source) != len(starts) - 1:
             target[:] = IGNORE_TOKEN_ID
             rank0_print(
-                f"WARNING: special tokenization mismatch."
-                f" (ignored)"
-            )
-            print(
                 f"WARNING: starts: {starts}"
                 f"WARNING: starts: {starts}"
                 f"WARNING: conversation: {conversation}"
@@ -138,7 +133,7 @@ def preprocess(
 
         target[ends[-1]+1:] = IGNORE_TOKEN_ID
 
-        if True:  # Inspect and check the correctness of masking
+        if False:  # Inspect and check the correctness of masking
             z = target.clone()
             z = torch.where(z == IGNORE_TOKEN_ID, tokenizer.pad_token_id, z)
             rank0_print(tokenizer.decode(z))
