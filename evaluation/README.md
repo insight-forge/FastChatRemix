@@ -5,7 +5,7 @@ python HfBasedModel.py --model-path your/model/path --data-dir data/
 ```
 ---
 
-## MT-Bench
+## llm_judge
 
 ### Evaluate a model on MT-bench
 
