@@ -183,7 +183,7 @@ if __name__ == "__main__":
     parser.add_argument("--data_dir", "-d", type=str, default="data")
     parser.add_argument("--save_dir", "-s", type=str, default="results")
     parser.add_argument(
-        "--model",
+        "--model-path",
         "-m",
         type=str,
         default="google/flan-t5-small",
