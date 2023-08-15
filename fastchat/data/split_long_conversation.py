@@ -12,8 +12,9 @@ import json
 from typing import Dict, Sequence, Optional
 
 import transformers
+from transformers import AutoTokenizer
 from tqdm import tqdm
-from fastchat.conversation import get_conv_template
+from fastchat.model.model_adapter import get_conversation_template
 
 
 def make_sample(sample, start_idx, end_idx):
@@ -30,8 +31,8 @@ tokenizer = max_length = None
 
 def split_one_sample(sample):
 
-    if args.conv_name and len(conv.system) > 0:
-        prefix_tokenized_len = len(tokenizer(conv.system).input_ids) + 2
+    if args.conv_name and len(conv.system_message) > 0:
+        prefix_tokenized_len = len(tokenizer(conv.system_message).input_ids) + 6
     else:
         prefix_tokenized_len = 0
 
@@ -113,10 +114,10 @@ def filter_invalid_roles(content):
 def main(args):
     if args.conv_name:
         global conv
-        conv = get_conv_template(args.conv_name)
+        conv = get_conversation_template(args.conv_name)
 
     content = json.load(open(args.in_file, "r"))
-    tokenizer = transformers.AutoTokenizer.from_pretrained(
+    tokenizer = AutoTokenizer.from_pretrained(
         args.model_name_or_path,
         model_max_length=args.max_length,
         padding_side="right",
