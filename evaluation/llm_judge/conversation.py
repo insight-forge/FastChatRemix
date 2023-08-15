@@ -196,7 +196,7 @@ class Conversation:
                     ret += role + ":\n"
             return ret
         elif self.sep_style == SeparatorStyle.QWEN:
-            ret = "" if self.system == "" else self.sep + "system\n" + self.system + self.sep2
+            ret = "" if self.system == "" else (self.sep + "system\n" + self.system + self.sep2)
             # ret = "" if system_prompt == "" else system_prompt + "\n"
             for i, (role, message) in enumerate(self.messages):
                 if message:
