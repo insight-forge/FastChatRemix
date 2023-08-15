@@ -1121,10 +1121,22 @@ class QwenAdapter(BaseModelAdapter):
         return "qwen" in model_path.lower()
 
     def load_model(self, model_path: str, from_pretrained_kwargs: dict):
-        tokenizer = transformers.AutoModelForCausalLM.from_pretrained(model_path, trust_remote_code=True)
-        model = transformers.AutoModelForCausalLM.from_pretrained(
-            model_path, trust_remote_code=True, **from_pretrained_kwargs
+        config = transformers.AutoConfig.from_pretrained(
+            model_path,
+            trust_remote_code=True,
+            use_flash_attn=False
         )
+        tokenizer = AutoTokenizer.from_pretrained(
+            model_path, trust_remote_code=True, use_fast=False
+        )
+        model = AutoModelForCausalLM.from_pretrained(
+            model_path,
+            config=config,
+            trust_remote_code=True,
+            low_cpu_mem_usage=True,
+            **from_pretrained_kwargs
+        )
+
         # https://github.com/QwenLM/Qwen-7B/blob/main/examples/tokenizer_showcase.ipynb
         tokenizer.eos_token_id = tokenizer.eod_id
         tokenizer.pad_token_id = tokenizer.special_tokens['<|extra_0|>']
