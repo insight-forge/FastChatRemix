@@ -4,7 +4,7 @@ import torch
 import numpy as np
 import pandas as pd
 from categories import subcategories, categories
-from transformers import AutoTokenizer, AutoModelForCausalLM
+from transformers import AutoTokenizer, AutoModelForCausalLM, AutoConfig
 import time
 
 choices = ["A", "B", "C", "D"]
@@ -111,12 +111,37 @@ def eval(args, subject, model, tokenizer, dev_df, test_df):
 
 
 def main(args):
-    tokenizer = AutoTokenizer.from_pretrained(args.model, padding_side="right", trust_remote_code=True)
-    tokenizer.pad_token = tokenizer.unk_token
-    print('tokenizer done!')
-    model = AutoModelForCausalLM.from_pretrained(args.model, torch_dtype=torch.bfloat16, low_cpu_mem_usage=True,
-                                                 revision='main', trust_remote_code=True).to('cuda')
-    print('upload model done!')
+    model_path = args.model_path
+    if 'qwen' in model_path.lower():
+        config = AutoConfig.from_pretrained(
+            model_path,
+            trust_remote_code=True,
+            use_flash_attn=False
+        )
+        tokenizer = AutoTokenizer.from_pretrained(
+            model_path, trust_remote_code=True, use_fast=False
+        )
+        print('tokenizer done!')
+        model = AutoModelForCausalLM.from_pretrained(
+            model_path,
+            config=config,
+            trust_remote_code=True,
+            low_cpu_mem_usage=True,
+        )
+        print('upload model done!')
+
+        # https://github.com/QwenLM/Qwen-7B/blob/main/examples/tokenizer_showcase.ipynb
+        tokenizer.eos_token_id = tokenizer.eod_id
+        tokenizer.pad_token_id = tokenizer.special_tokens['<|extra_0|>']
+        model.config.eos_token_id = [tokenizer.im_end_id, tokenizer.eos_token_id]
+        model.config.pad_token_id = tokenizer.pad_token
+    else:
+        tokenizer = AutoTokenizer.from_pretrained(args.model, padding_side="right", trust_remote_code=True)
+        tokenizer.pad_token = tokenizer.unk_token
+        print('tokenizer done!')
+        model = AutoModelForCausalLM.from_pretrained(args.model, torch_dtype=torch.bfloat16, low_cpu_mem_usage=True,
+                                                     revision='main', trust_remote_code=True).to('cuda')
+        print('upload model done!')
 
     subjects = sorted(
         [
