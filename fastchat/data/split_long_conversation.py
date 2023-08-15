@@ -13,6 +13,7 @@ from typing import Dict, Sequence, Optional
 
 import transformers
 from tqdm import tqdm
+from fastchat.conversation import get_conv_template
 
 
 def make_sample(sample, start_idx, end_idx):
@@ -28,6 +29,12 @@ tokenizer = max_length = None
 
 
 def split_one_sample(sample):
+
+    if args.conv_name and len(conv.system) > 0:
+        prefix_tokenized_len = len(tokenizer(conv.system).input_ids) + 2
+    else:
+        prefix_tokenized_len = 0
+
     tokenized_lens = []
     conversations = sample["conversations"]
     conversations = conversations[: len(conversations) // 2 * 2]
@@ -36,7 +43,7 @@ def split_one_sample(sample):
         tokenized_lens.append(length)
 
     start_idx = 0
-    cur_len = 0
+    cur_len = prefix_tokenized_len
 
     if len(conversations) % 2 != 0 or len(conversations) < 2:
         return []
@@ -46,8 +53,9 @@ def split_one_sample(sample):
         tmp_len = tokenized_lens[i] + tokenized_lens[i + 1]
         if cur_len + tmp_len > max_length:
             new_samples.append(make_sample(sample, start_idx, i))
-            start_idx = i
-            cur_len = 0
+            # skip long content
+            start_idx = (i + 2) if prefix_tokenized_len + tmp_len > max_length else i
+            cur_len = prefix_tokenized_len
         elif i == len(conversations) - 2:
             new_samples.append(make_sample(sample, start_idx, i + 2))
 
@@ -103,12 +111,17 @@ def filter_invalid_roles(content):
 
 
 def main(args):
+    if args.conv_name:
+        global conv
+        conv = get_conv_template(args.conv_name)
+
     content = json.load(open(args.in_file, "r"))
     tokenizer = transformers.AutoTokenizer.from_pretrained(
         args.model_name_or_path,
         model_max_length=args.max_length,
         padding_side="right",
         use_fast=False,
+        trust_remote_code=True
     )
     new_content = split_all(content, args.begin, args.end, tokenizer, args.max_length)
     new_content = filter_invalid_roles(new_content)
@@ -123,6 +136,7 @@ if __name__ == "__main__":
     parser.add_argument("--out-file", type=str, default="sharegpt_split.json")
     parser.add_argument("--begin", type=int)
     parser.add_argument("--end", type=int)
+    parser.add_argument("--conv-name", type=str, default=None)
     parser.add_argument("--model-name-or-path", type=str, required=True)
     parser.add_argument("--max-length", type=int, default=2048)
     args = parser.parse_args()

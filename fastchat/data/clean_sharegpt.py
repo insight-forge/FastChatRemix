@@ -26,7 +26,7 @@ code_lang_format = "```\g<1>\n\g<2>\n```"
 regenerate_pattern = re.compile("\d+ / \d+")
 copy_chars_pattern = re.compile("Copy\d+ chars / \d+ words")
 copy_code_pattern = re.compile("```(.*?)Copy code\s*```")
-
+start_with_punctuation = re.compile("^(,|\.) ")
 
 def reformat_code(val: str) -> str:
     # Input code format is:
@@ -57,8 +57,10 @@ def html_to_markdown(val: str) -> str:
     # Remove empty code block ```\nCopy code\n```
     val = re.sub(copy_code_pattern, "", val)
 
+    val = re.sub(start_with_punctuation, "", val)
+
     # Strip
-    val = val.replace("\n\n\n", "\n").strip()
+    val = val.replace("\n\n\n", "\n").replace(u'\ufeff', "").replace(u'\u200b', "").strip(" \n,")
 
     return val
 
@@ -73,6 +75,19 @@ def contain_blocked_words(val: str) -> bool:
 
 def clean_html_one_sample(sample):
     roles = ["human", "gpt"]
+
+    convs_len = len(sample["conversations"])
+    for i, c in enumerate(sample["conversations"]):
+        try:
+            new_val = html_to_markdown(c["value"])
+        except (bs4.builder.ParserRejectedMarkup, AssertionError):
+            return (sample, 4)
+
+        c["value"] = new_val
+        if not c["value"]:
+            convs_len = i
+            break
+    sample["conversations"] = sample["conversations"][: convs_len]
 
     if len(sample["conversations"]) <= 1:
         return (sample, 1)

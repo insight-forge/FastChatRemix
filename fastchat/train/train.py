@@ -220,12 +220,17 @@ def make_supervised_data_module(
         LazySupervisedDataset if data_args.lazy_preprocess else SupervisedDataset
     )
     rank0_print("Loading data...")
-
-    train_json = json.load(open(data_args.data_path, "r"))
+    train_json = []
+    for path in data_args.data_path.split(','):
+        train_json.extend(json.load(open(path, "r")))
+    # train_json = json.load(open(data_args.data_path, "r"))
     train_dataset = dataset_cls(train_json, tokenizer=tokenizer)
 
     if data_args.eval_data_path:
-        eval_json = json.load(open(data_args.eval_data_path, "r"))
+        eval_json = []
+        for path in data_args.eval_data_path.split(','):
+            eval_json.extend(json.load(open(path, "r")))
+        # eval_json = json.load(open(data_args.eval_data_path, "r"))
         eval_dataset = dataset_cls(eval_json, tokenizer=tokenizer)
     else:
         eval_dataset = None
@@ -246,6 +251,7 @@ def train():
     config = transformers.AutoConfig.from_pretrained(
         model_args.model_name_or_path,
         cache_dir=training_args.cache_dir,
+        trust_remote_code=True
     )
     orig_ctx_len = getattr(config, "max_position_embeddings", None)
     if orig_ctx_len and training_args.model_max_length > orig_ctx_len:
@@ -265,6 +271,7 @@ def train():
         model_max_length=training_args.model_max_length,
         padding_side="right",
         use_fast=False,
+        trust_remote_code=True
     )
     tokenizer.pad_token = tokenizer.unk_token
 
@@ -279,9 +286,13 @@ def train():
         trainer.train(resume_from_checkpoint=True)
     else:
         trainer.train()
+
     model.config.use_cache = True
-    trainer.save_state()
-    safe_save_model_for_hf_trainer(trainer=trainer, output_dir=training_args.output_dir)
+    # trainer.save_state()
+    # safe_save_model_for_hf_trainer(trainer=trainer, output_dir=training_args.output_dir)
+    final_model_path = os.path.join(training_args.output_dir, "final")
+    tokenizer.save_pretrained(final_model_path)
+    trainer.save_model(final_model_path)
 
 
 if __name__ == "__main__":
