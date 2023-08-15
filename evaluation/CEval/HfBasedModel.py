@@ -42,17 +42,26 @@ class HfModel_Evaluator:
             # https://github.com/QwenLM/Qwen-7B/blob/main/examples/tokenizer_showcase.ipynb
             self.tokenizer.eos_token_id = self.tokenizer.eod_id
             self.tokenizer.pad_token_id = self.tokenizer.special_tokens['<|extra_0|>']
+            self.model = AutoModelForCausalLM.from_pretrained(
+                self.model_path,
+                config=self.config,
+                trust_remote_code=True,
+                low_cpu_mem_usage=True,
+                revision='main',
+                torch_dtype=torch.float16
+            ).cuda()
+            self.model.config.eos_token_id = [self.tokenizer.im_end_id, self.tokenizer.eos_token_id]
+            self.model.config.pad_token_id = self.tokenizer.pad_token
         else:
             self.tokenizer.pad_token = self.tokenizer.unk_token
-
-        self.model = AutoModelForCausalLM.from_pretrained(
-            self.model_path,
-            config=self.config,
-            trust_remote_code=True,
-            low_cpu_mem_usage=True,
-            revision='main',
-            torch_dtype=torch.float16
-        ).cuda()
+            self.model = AutoModelForCausalLM.from_pretrained(
+                self.model_path,
+                config=self.config,
+                trust_remote_code=True,
+                low_cpu_mem_usage=True,
+                revision='main',
+                torch_dtype=torch.float16
+            ).cuda()
 
     def format_example(self, line, include_answer=True, cot=False):
         example = line['question']
