@@ -1086,7 +1086,7 @@ class Llama2Adapter(BaseModelAdapter):
 
     def load_model(self, model_path: str, from_pretrained_kwargs: dict):
         model, tokenizer = super().load_model(model_path, from_pretrained_kwargs)
-        model.config.eos_token_id = tokenizer.eos_token_id
+        model.config.eos_token_id = [tokenizer.im_end_id, tokenizer.eos_token_id]
         model.config.pad_token_id = tokenizer.pad_token_id
         return model, tokenizer
 
@@ -1113,6 +1113,26 @@ class CuteGPTAdapter(BaseModelAdapter):
     def get_default_conv_template(self, model_path: str) -> Conversation:
         return get_conv_template("cutegpt")
 
+class QwenAdapter(BaseModelAdapter):
+    """The model adapter for Qwen-7B"""
+
+    def match(self, model_path: str):
+        return "qwen" in model_path.lower()
+
+    def load_model(self, model_path: str, from_pretrained_kwargs: dict):
+        tokenizer = transformers.AutoModelForCausalLM.from_pretrained(model_path)
+        model = transformers.AutoModelForCausalLM.from_pretrained(
+            model_path, **from_pretrained_kwargs
+        )
+        # https://github.com/QwenLM/Qwen-7B/blob/main/examples/tokenizer_showcase.ipynb
+        tokenizer.eos_token_id = tokenizer.eod_id
+        tokenizer.pad_token_id = tokenizer.special_tokens['<|extra_0|>']
+        model.config.eos_token_id = tokenizer.eos_token_id
+        model.config.pad_token_id = tokenizer.pad_token
+        return model, tokenizer
+
+    def get_default_conv_template(self, model_path: str) -> Conversation:
+        return get_conv_template("qwen-7B")
 
 # Note: the registration order matters.
 # The one registered earlier has a higher matching priority.
@@ -1159,6 +1179,7 @@ register_model_adapter(InternLMChatAdapter)
 register_model_adapter(StarChatAdapter)
 register_model_adapter(Llama2Adapter)
 register_model_adapter(CuteGPTAdapter)
+register_model_adapter(QwenAdapter)
 
 # After all adapters, try the default base adapter.
 register_model_adapter(BaseModelAdapter)

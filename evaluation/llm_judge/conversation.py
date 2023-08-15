@@ -194,6 +194,15 @@ class Conversation:
                 else:
                     ret += role + ":\n"
             return ret
+        elif self.sep_style == SeparatorStyle.QWEN:
+            ret = "" if self.system == "" else self.sep + "system\n" + self.system + self.sep2
+            # ret = "" if system_prompt == "" else system_prompt + "\n"
+            for i, (role, message) in enumerate(self.messages):
+                if message:
+                    ret += self.sep + role + message + self.sep2
+                else:
+                    ret += self.sep + role + "\n"
+            return ret
         else:
             raise ValueError(f"Invalid style: {self.sep_style}")
 
@@ -876,6 +885,21 @@ register_conv_template(
         sep="\n",
         sep2="\n",
         stop_str="<end>",
+    )
+)
+
+# Qwen-7B template
+register_conv_template(
+    Conversation(
+        name="qwen-7B",
+        system="You are a helpful assistant.",
+        roles=("user\n", "assistant\n"),
+        messages=(),
+        offset=0,
+        sep_style=SeparatorStyle.QWEN,
+        sep="<|im_start|>",
+        sep2="<|im_end|>\n",
+        stop_str="<|im_end|>"
     )
 )
 
