@@ -13,6 +13,7 @@ else:
 
 import psutil
 import torch
+import transformers
 from transformers import (
     AutoConfig,
     AutoModel,

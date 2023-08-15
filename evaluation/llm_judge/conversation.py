@@ -27,6 +27,7 @@ class SeparatorStyle(IntEnum):
     RWKV = auto()
     PHOENIX = auto()
     ROBIN = auto()
+    QWEN = auto()
 
 
 @dataclasses.dataclass
