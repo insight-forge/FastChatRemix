@@ -2,10 +2,7 @@ import os
 from tqdm import tqdm
 import torch
 from transformers import AutoConfig, AutoTokenizer, AutoModelForCausalLM
-from evaluator import Evaluator
-from time import sleep
 import re
-import time
 import pandas as pd
 import json
 import argparse
