@@ -1128,7 +1128,7 @@ class QwenAdapter(BaseModelAdapter):
         # https://github.com/QwenLM/Qwen-7B/blob/main/examples/tokenizer_showcase.ipynb
         tokenizer.eos_token_id = tokenizer.eod_id
         tokenizer.pad_token_id = tokenizer.special_tokens['<|extra_0|>']
-        model.config.eos_token_id = tokenizer.eos_token_id
+        model.config.eos_token_id = [tokenizer.im_end_id, tokenizer.eos_token_id]
         model.config.pad_token_id = tokenizer.pad_token
         return model, tokenizer
 
