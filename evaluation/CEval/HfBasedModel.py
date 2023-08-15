@@ -35,7 +35,16 @@ class HfModel_Evaluator:
             self.model_path, trust_remote_code=True, use_fast=False
         )
         self.tokenizer.padding_side = "right"
-        self.tokenizer.pad_token = self.tokenizer.unk_token
+        print()
+        if 'qwen' in model_path.lower():
+            print(model_path)
+            self.config.use_flash_attn = False
+            # https://github.com/QwenLM/Qwen-7B/blob/main/examples/tokenizer_showcase.ipynb
+            self.tokenizer.eos_token_id = self.tokenizer.eod_id
+            self.tokenizer.pad_token_id = self.tokenizer.special_tokens['<|extra_0|>']
+        else:
+            self.tokenizer.pad_token = self.tokenizer.unk_token
+
         self.model = AutoModelForCausalLM.from_pretrained(
             self.model_path,
             config=self.config,
