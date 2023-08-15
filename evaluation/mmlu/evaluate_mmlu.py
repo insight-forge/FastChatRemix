@@ -54,7 +54,7 @@ def eval(args, subject, model, tokenizer, dev_df, test_df):
         prompt = train_prompt + prompt_end
         label = test_df.iloc[i, test_df.shape[1] - 1]
         pred = ''
-        if 'cpm-bee' in args.model:
+        if 'cpm-bee' in args.model_path:
             prompt = prompt.replace('<', '<<')
             try:
                 gen_res = model.generate({"input": prompt, "<ans>": ""}, tokenizer)
@@ -136,10 +136,10 @@ def main(args):
         model.config.eos_token_id = [tokenizer.im_end_id, tokenizer.eos_token_id]
         model.config.pad_token_id = tokenizer.pad_token
     else:
-        tokenizer = AutoTokenizer.from_pretrained(args.model, padding_side="right", trust_remote_code=True)
+        tokenizer = AutoTokenizer.from_pretrained(args.model_path, padding_side="right", trust_remote_code=True)
         tokenizer.pad_token = tokenizer.unk_token
         print('tokenizer done!')
-        model = AutoModelForCausalLM.from_pretrained(args.model, torch_dtype=torch.bfloat16, low_cpu_mem_usage=True,
+        model = AutoModelForCausalLM.from_pretrained(args.model_path, torch_dtype=torch.bfloat16, low_cpu_mem_usage=True,
                                                      revision='main', trust_remote_code=True).to('cuda')
         print('upload model done!')
 
@@ -153,8 +153,8 @@ def main(args):
 
     if not os.path.exists(args.save_dir):
         os.makedirs(args.save_dir)
-    if not os.path.exists(os.path.join(args.save_dir, "results_{}".format(args.model))):
-        os.makedirs(os.path.join(args.save_dir, "results_{}".format(args.model)))
+    if not os.path.exists(os.path.join(args.save_dir, "results_{}".format(args.model_path))):
+        os.makedirs(os.path.join(args.save_dir, "results_{}".format(args.model_path)))
 
     all_cors = []
     subcat_cors = {
@@ -179,13 +179,13 @@ def main(args):
                     cat_cors[key].append(cors)
         all_cors.append(cors)
 
-        test_df["{}_correct".format(args.model)] = cors
+        test_df["{}_correct".format(args.model_path)] = cors
         # for j in range(probs.shape[1]):
         #     choice = choices[j]
-        #     test_df["{}_choice{}_probs".format(args.model, choice)] = probs[:, j]
+        #     test_df["{}_choice{}_probs".format(args.model_path, choice)] = probs[:, j]
         # test_df.to_csv(
         #     os.path.join(
-        #         args.save_dir, "results_{}".format(args.model), "{}.csv".format(subject)
+        #         args.save_dir, "results_{}".format(args.model_path), "{}.csv".format(subject)
         #     ),
         #     index=None,
         # )
