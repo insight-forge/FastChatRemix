@@ -116,7 +116,7 @@ class HfModel_Evaluator:
             if 'cpm' in self.model_name:
                 full_prompt = "USER: " + few_shot_prompt + "问题：" + question[0]['content']
                 full_prompt = full_prompt.replace('<', '<<')
-            elif 'qwen' in self.model_path.lower():
+            elif 'qwen' in self.model_path.lower() and 'chat' in self.model_path.lower():
                 # full_prompt = f"<|im_start|>system\nYou are a helpful assistant.<|im_end|>\n<|im_start|>user\n" \
                 #               + few_shot_prompt + "问题：" + question[0]['content'] + "<|im_end|>\n<|im_start|>assistant\n"
                 full_prompt = f"<|im_start|>system\n{few_shot_prompt}<|im_end|>\n<|im_start|>user\n" \
