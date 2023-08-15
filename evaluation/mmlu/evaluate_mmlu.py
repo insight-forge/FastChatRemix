@@ -127,7 +127,7 @@ def main(args):
             config=config,
             trust_remote_code=True,
             low_cpu_mem_usage=True,
-        )
+        ).to('cuda')
         print('upload model done!')
 
         # https://github.com/QwenLM/Qwen-7B/blob/main/examples/tokenizer_showcase.ipynb
