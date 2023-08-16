@@ -100,7 +100,7 @@ class HfModel_Evaluator:
             prompt += f"示例{i}：{user}{model}\n"
         return prompt
     def generate_few_shot_chat_prompt(self, subject, dev_df, cot=False):
-        prompt = f"你是一个中文人工智能助手，以下有几个中国关于{subject}考试的单项选择题示例，接下来用户会提出同类型的单项选择题，请你直接给出最终的答案选项，即：直接选择'A'、'B'、'C'、'D'四个选项中的一个，而不做多余的解析或分析。\n\n"
+        prompt = f"你是一个中文人工智能助手，以下有几个中国关于{subject}考试的单项选择题示例，接下来用户会提出同类型的单项选择题，请你直接给出最终的答案选项，即：直接选择'A'、'B'、'C'、'D'四个选项中的一个，而不要解析或解释解答过程。\n\n"
         k = self.k
         if self.k == -1:
             k = dev_df.shape[0]
