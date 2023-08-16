@@ -41,7 +41,7 @@ def gen_prompt(train_df, subject, k=-1):
 
 def gen_chat_prompt(train_df, subject, df, idx, prompt_template=None):
     if not prompt_template:
-        prompt_template = "<|im_start|>system\n{}<|im_end|>\n<|im_start|>user\n{}\nAnswer: <|im_end|>\n<|im_start|>assistant\n"
+        prompt_template = "<|im_start|>system\n{}<|im_end|>\n<|im_start|>user\n{}\nAnswer:<|im_end|>\n<|im_start|>assistant\n"
     prompt = "You need to give the answer to the multiple choice questions about {} asked by the user.\n\n".format(
         format_subject(subject)
     )
@@ -69,8 +69,8 @@ def eval(args, subject, model, tokenizer, dev_df, test_df):
         prompt_end = format_example(test_df, i, include_answer=False)
         train_prompt = gen_prompt(dev_df, subject, k)
         prompt = train_prompt + prompt_end
-        if "qwen" in args.model_path.lower() and "chat" in args.model_path.lower():
-            prompt = gen_chat_prompt(dev_df, subject, test_df, i)
+        # if "qwen" in args.model_path.lower() and "chat" in args.model_path.lower():
+        #     prompt = gen_chat_prompt(dev_df, subject, test_df, i)
 
         label = test_df.iloc[i, test_df.shape[1] - 1]
         pred = ''
