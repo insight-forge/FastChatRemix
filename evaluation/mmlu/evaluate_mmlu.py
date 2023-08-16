@@ -39,6 +39,23 @@ def gen_prompt(train_df, subject, k=-1):
         prompt += format_example(train_df, i)
     return prompt
 
+def gen_chat_prompt(train_df, subject, df, idx, prompt_template=None):
+    if not prompt_template:
+        prompt_template = "<|im_start|>system\n{}<|im_end|>\n<|im_start|>user\n{}\nAnswer: <|im_end|>\n<|im_start|>assistant\n"
+    prompt = "You need to give the answer to the multiple choice questions about {} asked by the user.\n\n".format(
+        format_subject(subject)
+    )
+    if train_df.shape[0] > 0:
+        prompt += "The following are some examples of multiple choice questions (with answers) about {}.\n\n"
+        for i in range(train_df.shape[0]):
+            prompt += format_example(train_df, i)
+
+    question = df.iloc[idx, 0]
+    k = df.shape[1] - 2
+    for j in range(k):
+        question += "\n{}. {}".format(choices[j], df.iloc[idx, j + 1])
+    return prompt_template.format(prompt, question)
+
 
 @torch.no_grad()
 def eval(args, subject, model, tokenizer, dev_df, test_df):
@@ -52,6 +69,9 @@ def eval(args, subject, model, tokenizer, dev_df, test_df):
         prompt_end = format_example(test_df, i, include_answer=False)
         train_prompt = gen_prompt(dev_df, subject, k)
         prompt = train_prompt + prompt_end
+        if "qwen" in args.model_path.lower() and "chat" in args.model_path.lower():
+            prompt = gen_chat_prompt(dev_df, subject, test_df, i)
+
         label = test_df.iloc[i, test_df.shape[1] - 1]
         pred = ''
         if 'cpm-bee' in args.model_path:
@@ -76,7 +96,7 @@ def eval(args, subject, model, tokenizer, dev_df, test_df):
 
             logits = model(
                 input_ids=input_ids,
-            ).logits[:, -1].flatten()
+            ).logits[:, -1].flatten().to(torch.float32)
 
             probs = (
                 torch.nn.functional.softmax(

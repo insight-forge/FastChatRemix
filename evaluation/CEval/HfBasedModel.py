@@ -24,10 +24,11 @@ SUBJECTS = ['computer_network', 'operating_system', 'computer_architecture', 'co
 
 
 class HfModel_Evaluator:
-    def __init__(self, choices, k, model_name, model_path):
+    def __init__(self, choices, k, model_name, model_path, max_new_tokens):
         self.choices = choices
         self.model_name = model_name
         self.k = k
+        self.max_new_tokens = max_new_tokens
 
         self.model_path = model_path
         self.config = AutoConfig.from_pretrained(self.model_path, trust_remote_code=True)
@@ -98,6 +99,17 @@ class HfModel_Evaluator:
             model = tmp[1]['content']
             prompt += f"示例{i}：{user}{model}\n"
         return prompt
+    def generate_few_shot_chat_prompt(self, subject, dev_df, cot=False):
+        prompt = f"你是一个中文人工智能助手，以下有几个中国关于{subject}考试的单项选择题示例，接下来用户会提出相同类型的考试问题，请直接回答最终的答案，如示例所示回答A、B、C、D中的一个，不需要多余的回答或解析。\n\n"
+        k = self.k
+        if self.k == -1:
+            k = dev_df.shape[0]
+        for i in range(k):
+            tmp = self.format_example(dev_df.iloc[i, :], include_answer=True, cot=cot)
+            user = tmp[0]['content']
+            model = tmp[1]['content']
+            prompt += f"示例{i}：{user}{model}\n"
+        return prompt
 
     def eval_subject(self, subject_name, test_df, dev_df=None, few_shot=False, save_result_dir=None, cot=False):
         correct_num = 0
@@ -119,6 +131,7 @@ class HfModel_Evaluator:
             elif 'qwen' in self.model_path.lower() and 'chat' in self.model_path.lower():
                 # full_prompt = f"<|im_start|>system\nYou are a helpful assistant.<|im_end|>\n<|im_start|>user\n" \
                 #               + few_shot_prompt + "问题：" + question[0]['content'] + "<|im_end|>\n<|im_start|>assistant\n"
+                few_shot_prompt = self.generate_few_shot_chat_prompt(subject_name, dev_df, cot=cot)
                 full_prompt = f"<|im_start|>system\n{few_shot_prompt}<|im_end|>\n<|im_start|>user\n" \
                              + "问题：" + question[0]['content'] + "<|im_end|>\n<|im_start|>assistant\n"
             # print(full_prompt)
@@ -131,7 +144,7 @@ class HfModel_Evaluator:
                         inputs[k] = inputs[k].cuda()
                     outputs = self.model.generate(**inputs, do_sample=True, temperature=0.2, top_p=0.8,
                                                   repetition_penalty=1.02,
-                                                  max_new_tokens=512)
+                                                  max_new_tokens=512 if self.max_new_tokens <= 0 else self.max_new_tokens)
                     input_len = torch.max(torch.sum(inputs.attention_mask, axis=1))
                     response_list = [
                         self.tokenizer.decode(outputs[i][input_len:], skip_special_tokens=True)
@@ -145,7 +158,7 @@ class HfModel_Evaluator:
                         max_tok = 2040 - inputs.input_ids.shape[1]
                         outputs = self.model.generate(**inputs, do_sample=True, temperature=0.2, top_p=0.8,
                                                       repetition_penalty=1.02,
-                                                      max_new_tokens=max_tok)
+                                                      max_new_tokens=max_tok if self.max_new_tokens <= 0 else self.max_new_tokens)
                         input_len = torch.max(torch.sum(inputs.attention_mask, axis=1))
                         response_list = [
                             self.tokenizer.decode(outputs[i][input_len:], skip_special_tokens=True)
@@ -212,10 +225,16 @@ if __name__ == "__main__":
         default="./output.json",
         help="JSON format file, saving the results to be uploaded",
     )
+    parser.add_argument(
+        "--max-new-tokens",
+        type=int,
+        default=-1,
+        help="max new tokens for generating",
+    )
     args = parser.parse_args()
 
     model_name = args.model_path.split('/')[-1]
-    evaluator = HfModel_Evaluator(choices=CHOICES, k=NTRAIN, model_name=model_name, model_path=args.model_path)
+    evaluator = HfModel_Evaluator(choices=CHOICES, k=NTRAIN, model_name=model_name, model_path=args.model_path, max_new_tokens=args.max_new_tokens)
 
     if not os.path.exists(r"logs"):
         os.mkdir(r"logs")

@@ -421,7 +421,10 @@ def chat_compeletion_openai(model, conv, temperature, max_tokens):
             break
         except openai.error.OpenAIError as e:
             print(type(e), e)
-            #time.sleep(API_RETRY_SLEEP)
+            time.sleep(API_RETRY_SLEEP)
+        except Exception as e:
+            print(type(e), e, 'message:', response["choices"][0]["message"])
+            time.sleep(API_RETRY_SLEEP)
         print(f"retry count: {i+1}")
 
     return output
