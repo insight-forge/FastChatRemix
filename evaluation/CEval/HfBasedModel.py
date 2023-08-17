@@ -134,7 +134,7 @@ class HfModel_Evaluator:
                 few_shot_prompt = self.generate_few_shot_chat_prompt(subject_name, dev_df, cot=cot)
                 full_prompt = f"<|im_start|>system\n{few_shot_prompt}<|im_end|>\n<|im_start|>user\n" \
                              + "问题：" + question[0]['content'].strip()[:-4] + "<|im_end|>\n<|im_start|>assistant\n答案："
-            print(full_prompt)
+            # print(full_prompt)
             message_list.append(full_prompt)
             if len(message_list) % 1 == 0 or row_index == len(test_df) - 1:
                 response_list = []
@@ -231,6 +231,12 @@ if __name__ == "__main__":
         default=-1,
         help="max new tokens for generating",
     )
+    parser.add_argument(
+        "--few-shot",
+        action='store_false',
+        default=True,
+        help="few shot",
+    )
     args = parser.parse_args()
 
     model_name = args.model_path.split('/')[-1]
@@ -251,7 +257,7 @@ if __name__ == "__main__":
         dev_file_path = os.path.join(args.data_dir, f'dev/{subject}_dev.csv')
         dev_df = pd.read_csv(dev_file_path)
 
-        cur_dict = evaluator.eval_subject(subject, val_df, dev_df, few_shot=True, save_result_dir=save_result_dir)
+        cur_dict = evaluator.eval_subject(subject, val_df, dev_df, few_shot=args.few_shot, save_result_dir=save_result_dir)
         res_dict[subject] = cur_dict
 
     with open(args.out_file, 'w') as f:
