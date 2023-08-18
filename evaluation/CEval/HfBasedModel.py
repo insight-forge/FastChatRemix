@@ -99,16 +99,19 @@ class HfModel_Evaluator:
             model = tmp[1]['content']
             prompt += f"示例{i}：{user}{model}\n"
         return prompt
-    def generate_few_shot_chat_prompt(self, subject, dev_df, cot=False):
-        prompt = f"你是一个中文人工智能助手，以下有几个中国关于{subject}考试的单项选择题示例，接下来用户会提出同类型的单项选择题，请你直接给出最终的答案选项，即：直接选择'A'、'B'、'C'、'D'四个选项中的一个，而不要解析或解释解答过程。\n\n"
-        k = self.k
-        if self.k == -1:
-            k = dev_df.shape[0]
-        for i in range(k):
-            tmp = self.format_example(dev_df.iloc[i, :], include_answer=True, cot=cot)
-            user = tmp[0]['content']
-            model = tmp[1]['content']
-            prompt += f"示例{i}：{user}{model}\n"
+    def generate_few_shot_chat_prompt(self, subject, dev_df, cot=False, few_shot=False):
+        if few_shot:
+            prompt = f"你是一个中文人工智能助手，以下有几个中国关于{subject}考试的单项选择题示例，接下来用户会提出同类型的单项选择题，请你直接给出最终的答案选项，即：直接选择'A'、'B'、'C'、'D'四个选项中的一个，而不要解析或解释解答过程。\n\n"
+            k = self.k
+            if self.k == -1 :
+                k = dev_df.shape[0]
+            for i in range(k):
+                tmp = self.format_example(dev_df.iloc[i, :], include_answer=True, cot=cot)
+                user = tmp[0]['content']
+                model = tmp[1]['content']
+                prompt += f"示例{i}：{user}{model}\n"
+        else:
+            prompt = f"你是一个中文人工智能助手，用户会提出一些中国关于{subject}考试的单项选择题，请你直接给出最终的答案选项，即：直接选择'A'、'B'、'C'、'D'四个选项中的一个，而不要解析或解释解答过程。"
         return prompt
 
     def eval_subject(self, subject_name, test_df, dev_df=None, few_shot=False, save_result_dir=None, cot=False):
@@ -131,7 +134,7 @@ class HfModel_Evaluator:
             elif 'qwen' in self.model_path.lower() and 'chat' in self.model_path.lower():
                 # full_prompt = f"<|im_start|>system\nYou are a helpful assistant.<|im_end|>\n<|im_start|>user\n" \
                 #               + few_shot_prompt + "问题：" + question[0]['content'] + "<|im_end|>\n<|im_start|>assistant\n"
-                few_shot_prompt = self.generate_few_shot_chat_prompt(subject_name, dev_df, cot=cot)
+                few_shot_prompt = self.generate_few_shot_chat_prompt(subject_name, dev_df, cot=cot, few_shot=few_shot)
                 full_prompt = f"<|im_start|>system\n{few_shot_prompt}<|im_end|>\n<|im_start|>user\n" \
                              + "问题：" + question[0]['content'].strip()[:-4] + "<|im_end|>\n<|im_start|>assistant\n答案："
             # print(full_prompt)
