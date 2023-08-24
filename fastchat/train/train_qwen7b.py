@@ -84,18 +84,21 @@ def preprocess(
     tokenizer: transformers.PreTrainedTokenizer,
 ) -> Dict:
     conv = get_conversation_template("qwen-7B")
-    roles = {"human": conv.roles[0], "gpt": conv.roles[1]}
-
+    roles = {"human": conv.roles[0], "gpt": conv.roles[1], "system": "system", "function": "function"}
+    default_sys_msg = conv.system_message
+    assistant_token = tokenizer.encode("assistant")[0]
     # Apply prompt templates
     conversations = []
     for i, source in enumerate(sources):
+        conv.system_message = source[0]["value"] if source[0]["from"] == "system" else default_sys_msg
         if source[0]["from"] != "human":
             # Skip the first one if it is not from human
             source = source[1:]
+            sources[i] = source
         conv.messages = []
         for j, sentence in enumerate(source):
             role = roles[sentence["from"]]
-            assert role == conv.roles[j % 2], f"{i}"
+            # assert role == conv.roles[j % 2], f"{i}"
             conv.append_message(role, sentence["value"])
         conversations.append(conv.get_prompt())
 
@@ -113,7 +116,7 @@ def preprocess(
     for source, conversation, target in zip(sources, conversations, targets):
         starts = (target == tokenizer.im_start_id).nonzero(as_tuple=False)
         ends = (target == tokenizer.im_end_id).nonzero(as_tuple=False)
-        if len(starts) == len(ends) and len(source) != len(starts) - 1:
+        if not len(starts) or not len(ends) or len(starts) == len(ends) and len(source) != len(starts) - 1:
             target[:] = IGNORE_TOKEN_ID
             rank0_print(
                 f"WARNING: special tokenization mismatch: len(source): {len(source)}, len(starts): {len(starts)}, len(ends): {len(ends)}"
@@ -122,11 +125,11 @@ def preprocess(
             continue
 
         for i, (start, end) in enumerate(zip(starts, ends)):
-            if i > 0 and i % 2 == 0:
+            if target[start+1] == assistant_token:
                 target[start: start + 3] = IGNORE_TOKEN_ID
-                target[end + 1: end + 3] = IGNORE_TOKEN_ID
+                target[end + 1: end + 2] = IGNORE_TOKEN_ID
             else:
-                target[start: end + 3] = IGNORE_TOKEN_ID
+                target[start: end + 2] = IGNORE_TOKEN_ID
         # target[:starts[0]] = IGNORE_TOKEN_ID
         target[ends[-1]+1:] = IGNORE_TOKEN_ID
 
