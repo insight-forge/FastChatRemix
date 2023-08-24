@@ -122,7 +122,7 @@ def preprocess(
     for source, conversation, target in zip(sources, conversations, targets):
         starts = (target == tokenizer.im_start_id).nonzero(as_tuple=False)
         ends = (target == tokenizer.im_end_id).nonzero(as_tuple=False)
-        if len(starts) == len(ends) and len(source) != len(starts) - 1:
+        if len(starts)==0 or len(ends)==0 or len(starts) == len(ends) and len(source) != len(starts) - 1:
             target[:] = IGNORE_TOKEN_ID
             rank0_print(
                 f"WARNING: truncation or special tokenization mismatch: len(source): {len(source)}, len(starts): {len(starts)}, len(ends): {len(ends)}"
