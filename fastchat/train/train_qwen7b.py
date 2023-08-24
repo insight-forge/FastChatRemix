@@ -84,7 +84,13 @@ def preprocess(
     tokenizer: transformers.PreTrainedTokenizer,
 ) -> Dict:
     conv = get_conversation_template("qwen-7B")
-    roles = {"human": conv.roles[0], "gpt": conv.roles[1], "system": "system", "function": "function"}
+    roles = {"human": conv.roles[0],
+             "user": conv.roles[0],
+             "gpt": conv.roles[1],
+             "assistant": conv.roles[1],
+             "system": "system",
+             "function": "function",
+             }
     default_sys_msg = conv.system_message
     assistant_token = tokenizer.encode("assistant")[0]
     # Apply prompt templates
@@ -99,7 +105,7 @@ def preprocess(
         for j, sentence in enumerate(source):
             role = roles[sentence["from"]]
             # assert role == conv.roles[j % 2], f"{i}"
-            conv.append_message(role, sentence["value"])
+            conv.append_message(role, sentence["value"].strip())
         conversations.append(conv.get_prompt())
 
     # Tokenize conversations
@@ -116,10 +122,10 @@ def preprocess(
     for source, conversation, target in zip(sources, conversations, targets):
         starts = (target == tokenizer.im_start_id).nonzero(as_tuple=False)
         ends = (target == tokenizer.im_end_id).nonzero(as_tuple=False)
-        if not len(starts) or not len(ends) or len(starts) == len(ends) and len(source) != len(starts) - 1:
+        if len(starts) != len(ends):
             target[:] = IGNORE_TOKEN_ID
             rank0_print(
-                f"WARNING: special tokenization mismatch: len(source): {len(source)}, len(starts): {len(starts)}, len(ends): {len(ends)}"
+                f"WARNING: truncation or special tokenization mismatch: len(source): {len(source)}, len(starts): {len(starts)}, len(ends): {len(ends)}"
                 f" (ignored)"
             )
             continue

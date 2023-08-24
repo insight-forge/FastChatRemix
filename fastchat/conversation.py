@@ -203,7 +203,7 @@ class Conversation:
             # ret = "" if system_prompt == "" else system_prompt + "\n"
             for i, (role, message) in enumerate(self.messages):
                 if message:
-                    ret += self.sep + role + message + self.sep2
+                    ret += self.sep + role + "\n" + message + self.sep2
                 else:
                     ret += self.sep + role + "\n"
             return ret
@@ -893,7 +893,7 @@ register_conv_template(
     Conversation(
         name="qwen-7B",
         system_message="You are a helpful assistant.",
-        roles=("user\n", "assistant\n"),
+        roles=("user", "assistant"),
         messages=(),
         offset=0,
         sep_style=SeparatorStyle.QWEN,
