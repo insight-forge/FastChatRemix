@@ -84,12 +84,12 @@ def preprocess(
     tokenizer: transformers.PreTrainedTokenizer,
 ) -> Dict:
     conv = get_conversation_template("qwen-7B")
-    roles = {"human": conv.roles[0],
-             "user": conv.roles[0],
-             "gpt": conv.roles[1],
-             "assistant": conv.roles[1],
-             "system": "system",
-             "function": "function",
+    roles = {"human": '<|im_start|>user',
+             "user": '<|im_start|>user',
+             "gpt": '<|im_start|>assistant',
+             "assistant": '<|im_start|>assistant',
+             "system": "<|im_start|>system",
+             "function": "<|im_start|>function",
              }
     default_sys_msg = conv.system_message
     assistant_token = tokenizer.encode("assistant")[0]
