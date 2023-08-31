@@ -2,23 +2,21 @@
 Hardcoded question and answers.
 """
 import json
+import argparse
 
 
-def identity_questions():
+def identity_questions(name, org):
     """ "
     Adopted from https://github.com/young-geng/koala_data_pipeline/blob/main/process_hard_coded_data.py
     """
     content = []
-
-    name = "llm名字"
-    org = "公司或组织"
 
     def generate_conversations(questions, answers):
         for q in questions:
             for a in answers:
                 content.append(
                     {
-                        "id": f"identity_{len(content)}",
+                        "id": f"cn_identity_{len(content)}",
                         "conversations": [
                             {"from": "human", "value": q},
                             {"from": "gpt", "value": a},
@@ -172,9 +170,15 @@ def identity_questions():
 
 
 if __name__ == "__main__":
-    out_file = "hardcoded_cn.json"
+    parser = argparse.ArgumentParser()
+    parser.add_argument("--name", type=str, default="Vicuna")
+    parser.add_argument("--org", type=str, default="Large Model Systems Organization (LMSYS)")
+    parser.add_argument("--out-file", type=str, default="hardcoded_cn.json")
+    args = parser.parse_args()
+
+    print("args: ", args)
 
     content = []
-    content.extend(identity_questions())
+    content.extend(identity_questions(args.name, args.org))
 
-    json.dump(content, open(out_file, "w"), indent=2)
+    json.dump(content, open(args.out_file, "w"), indent=2, ensure_ascii=False)
