@@ -1272,26 +1272,6 @@ class CuteGPTAdapter(BaseModelAdapter):
     def get_default_conv_template(self, model_path: str) -> Conversation:
         return get_conv_template("cutegpt")
 
-class QwenAdapter(BaseModelAdapter):
-    """The model adapter for Qwen-7B"""
-
-    def match(self, model_path: str):
-        return "qwen" in model_path.lower()
-
-    def load_model(self, model_path: str, from_pretrained_kwargs: dict):
-        tokenizer = transformers.AutoModelForCausalLM.from_pretrained(model_path)
-        model = transformers.AutoModelForCausalLM.from_pretrained(
-            model_path, **from_pretrained_kwargs
-        )
-        # https://github.com/QwenLM/Qwen-7B/blob/main/examples/tokenizer_showcase.ipynb
-        tokenizer.eos_token_id = tokenizer.eod_id
-        tokenizer.pad_token_id = tokenizer.special_tokens['<|extra_0|>']
-        model.config.eos_token_id = tokenizer.eos_token_id
-        model.config.pad_token_id = tokenizer.pad_token
-        return model, tokenizer
-
-    def get_default_conv_template(self, model_path: str) -> Conversation:
-        return get_conv_template("qwen-7B")
 
 class OpenOrcaAdapter(BaseModelAdapter):
     "Model adapater for Open-Orca models (e.g., Open-Orca/OpenOrcaxOpenChat-Preview2-13B)" ""
@@ -1644,7 +1624,6 @@ register_model_adapter(InternLMChatAdapter)
 register_model_adapter(StarChatAdapter)
 register_model_adapter(Llama2Adapter)
 register_model_adapter(CuteGPTAdapter)
-register_model_adapter(QwenAdapter)
 register_model_adapter(OpenOrcaAdapter)
 register_model_adapter(WizardCoderAdapter)
 register_model_adapter(QwenChatAdapter)
