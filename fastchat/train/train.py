@@ -18,6 +18,7 @@ from dataclasses import dataclass, field
 import json
 import math
 import pathlib
+import os
 from typing import Dict, Optional, Sequence
 
 import numpy as np
@@ -277,6 +278,10 @@ def train():
 
     # Load data
     data_module = make_supervised_data_module(tokenizer=tokenizer, data_args=data_args)
+
+    rank0_print("training_args:", training_args)
+    rank0_print("model_args:", model_args)
+    rank0_print("data_args:", data_args)
 
     # Start trainner
     trainer = Trainer(
