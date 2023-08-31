@@ -109,7 +109,7 @@ def load_compress_model(model_path, device, torch_dtype, use_fast, revision="mai
         )
     except TypeError:
         tokenizer = AutoTokenizer.from_pretrained(
-            model_path, use_fast=False, revision=revision, trust_remote_code=True
+            model_path, use_fast=~use_fast, revision=revision, trust_remote_code=True
         )
     with init_empty_weights():
         # `trust_remote_code` should be set as `True` for both AutoConfig and AutoModel
@@ -167,12 +167,14 @@ def load_compress_model(model_path, device, torch_dtype, use_fast, revision="mai
         tmp_state_dict = torch.load(filename, map_location=lambda storage, loc: storage)
         for name in tmp_state_dict:
             if name in linear_weights:
-                tensor = tmp_state_dict[name].to(device).data.to(torch_dtype)
+                tensor = tmp_state_dict[name].to(device, dtype=torch_dtype)
                 compressed_state_dict[name] = compress(
                     tensor, default_compression_config
                 )
             else:
-                compressed_state_dict[name] = tmp_state_dict[name].to(device)
+                compressed_state_dict[name] = tmp_state_dict[name].to(
+                    device, dtype=torch_dtype
+                )
             tmp_state_dict[name] = None
             tensor = None
             gc.collect()
