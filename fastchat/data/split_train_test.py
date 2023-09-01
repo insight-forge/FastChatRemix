@@ -15,15 +15,17 @@ if __name__ == "__main__":
     parser.add_argument("--begin", type=int, default=0)
     parser.add_argument("--end", type=int, default=100)
     parser.add_argument("--ratio", type=float, default=0.9)
+    parser.add_argument("--test-cnt", type=int, default=0)
     args = parser.parse_args()
+    print("args:", args)
 
     content = json.load(open(args.in_file, "r"))
     np.random.seed(0)
 
     perm = np.random.permutation(len(content))
     content = [content[i] for i in perm]
-    split = int(args.ratio * len(content))
 
+    split = args.test_cnt if args.test_cnt > 0 else int(args.ratio * len(content))
     train_set = content[:split]
     test_set = content[split:]
 
