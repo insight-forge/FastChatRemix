@@ -14,10 +14,12 @@ if __name__ == "__main__":
     parser.add_argument("--in-file", type=str, required=True, nargs="+")
     parser.add_argument("--out-file", type=str, default="merged.json")
     args = parser.parse_args()
+    print("args: ", args)
 
     new_content = []
     for in_file in args.in_file:
         content = json.load(open(in_file, "r"))
+        print(f"#in: {in_file} = {len(content)}")
         new_content.extend(content)
 
     print(f"#out: {len(new_content)}")

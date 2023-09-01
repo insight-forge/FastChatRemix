@@ -141,4 +141,5 @@ if __name__ == "__main__":
     parser.add_argument("--model-name-or-path", type=str, required=True)
     parser.add_argument("--max-length", type=int, default=2048)
     args = parser.parse_args()
+    print("args: ", args)
     main(args)
