@@ -225,7 +225,7 @@ def make_supervised_data_module(
     for path in data_args.data_path.split(','):
         train_json.extend(json.load(open(path, "r")))
     # train_json = json.load(open(data_args.data_path, "r"))
-    rank0_print("Total samples count: {}".format(len(train_json)))
+    rank0_print("Training samples count: {}".format(len(train_json)))
     train_dataset = dataset_cls(train_json, tokenizer=tokenizer)
 
     if data_args.eval_data_path:
@@ -233,6 +233,7 @@ def make_supervised_data_module(
         for path in data_args.eval_data_path.split(','):
             eval_json.extend(json.load(open(path, "r")))
         # eval_json = json.load(open(data_args.eval_data_path, "r"))
+        rank0_print("Test samples count: {}".format(len(eval_json)))
         eval_dataset = dataset_cls(eval_json, tokenizer=tokenizer)
     else:
         eval_dataset = None
