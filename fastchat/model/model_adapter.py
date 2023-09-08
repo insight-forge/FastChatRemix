@@ -1340,7 +1340,8 @@ class QwenChatAdapter(BaseModelAdapter):
             model_path,
             trust_remote_code=True,
         )
-        config.use_flash_attn = False
+        # NOTE: if you use the old version of model file, please remove the comments below
+        # config.use_flash_attn = False
         config.fp16 = True
         generation_config = GenerationConfig.from_pretrained(
             model_path, trust_remote_code=True
@@ -1405,7 +1406,7 @@ class E5Adapter(BaseModelAdapter):
     use_fast_tokenizer = False
 
     def match(self, model_path: str):
-        return "e5" in model_path.lower()
+        return "e5-" in model_path.lower()
 
     def load_model(self, model_path: str, from_pretrained_kwargs: dict):
         revision = from_pretrained_kwargs.get("revision", "main")
