@@ -86,11 +86,16 @@ def preprocess(
     tokenizer: transformers.PreTrainedTokenizer,
 ) -> Dict:
     conv = get_conversation_template("vicuna")
-    roles = {"human": conv.roles[0], "gpt": conv.roles[1]}
+    roles = {"human": conv.roles[0], "gpt": conv.roles[1], "system": "SYSTEM", "function": "FUNCTION"}
 
     # Apply prompt templates
     conversations = []
     for i, source in enumerate(sources):
+        if roles[source[0]["from"]] == "SYSTEM":
+            # Join the value from system role
+            conv.system_message = f"{source[0]['value']}"
+            source = source[1:]
+
         if roles[source[0]["from"]] != conv.roles[0]:
             # Skip the first one if it is not from human
             source = source[1:]
@@ -98,8 +103,10 @@ def preprocess(
         conv.messages = []
         for j, sentence in enumerate(source):
             role = roles[sentence["from"]]
-            assert role == conv.roles[j % 2], f"{i}"
-            conv.append_message(role, sentence["value"])
+            if (j % 2 == 0 and role in ["FUNCTION", conv.roles[0]]) or (j % 2 == 1 and role == conv.roles[1]):
+                conv.append_message(role, sentence["value"])
+            else:
+                rank0_print(f"The format is illegal: ", source)
         conversations.append(conv.get_prompt())
 
     # Tokenize conversations
