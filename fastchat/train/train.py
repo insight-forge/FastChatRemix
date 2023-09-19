@@ -101,13 +101,18 @@ def preprocess(
             source = source[1:]
 
         conv.messages = []
+        valid_data = True
         for j, sentence in enumerate(source):
             role = roles[sentence["from"]]
             if (j % 2 == 0 and role in ["FUNCTION", conv.roles[0]]) or (j % 2 == 1 and role == conv.roles[1]):
                 conv.append_message(role, sentence["value"])
             else:
                 rank0_print(f"The format is illegal: ", source)
-        conversations.append(conv.get_prompt())
+                valid_data = False
+                break
+
+        if valid_data:
+            conversations.append(conv.get_prompt())
 
     # Tokenize conversations
     input_ids = tokenizer(
