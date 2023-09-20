@@ -114,6 +114,8 @@ def preprocess(
         if valid_data:
             conversations.append(conv.get_prompt())
 
+    assert len(conversations) > 0, f"The conversations is empty, len(sources)={len(sources)}, sources[0]={sources[0]}"
+
     # Tokenize conversations
     input_ids = tokenizer(
         conversations,
