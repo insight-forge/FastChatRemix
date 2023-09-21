@@ -161,11 +161,12 @@ def preprocess(
 
         if cur_len < tokenizer.model_max_length:
             if cur_len != total_len:
-                target[:] = IGNORE_TOKEN_ID
                 rank0_print(
-                    f"WARNING: tokenization mismatch: {cur_len} vs. {total_len}."
-                    f" (ignored)"
+                    f"WARNING: tokenization mismatch: {cur_len} vs. {total_len}. (ignored)\n"
+                    f"conversation: {conversation}\n"
+                    f"target: {target}"
                 )
+                target[:] = IGNORE_TOKEN_ID
 
     return dict(
         input_ids=input_ids,
