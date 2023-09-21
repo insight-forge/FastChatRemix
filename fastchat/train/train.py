@@ -243,6 +243,7 @@ def make_supervised_data_module(
     # train_json = json.load(open(data_args.data_path, "r"))
     rank0_print("Training samples count: {}".format(len(train_json)))
     train_dataset = dataset_cls(train_json, tokenizer=tokenizer)
+    rank0_print("Actual training samples count: {}".format(len(train_dataset)))
 
     if data_args.eval_data_path:
         eval_json = []
@@ -251,6 +252,7 @@ def make_supervised_data_module(
         # eval_json = json.load(open(data_args.eval_data_path, "r"))
         rank0_print("Test samples count: {}".format(len(eval_json)))
         eval_dataset = dataset_cls(eval_json, tokenizer=tokenizer)
+        rank0_print("Actual test samples count: {}".format(len(eval_dataset)))
     else:
         eval_dataset = None
 
