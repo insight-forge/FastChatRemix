@@ -88,9 +88,12 @@ def preprocess(
     conv = get_conversation_template("vicuna")
     roles = {"human": conv.roles[0], "gpt": conv.roles[1], "system": "SYSTEM", "function": "FUNCTION"}
 
+    abnormal_samples = open("abnormal_samples.log", "w", encoding="utf-8")
+
     # Apply prompt templates
     conversations = []
-    for i, source in enumerate(sources):
+    for i, sample in enumerate(sources):
+        source = sample["conversations"]
         if roles[source[0]["from"]] == "SYSTEM":
             # Join the value from system role
             conv.system_message = f"{source[0]['value']}"
@@ -107,8 +110,9 @@ def preprocess(
             if (j % 2 == 0 and role in ["FUNCTION", conv.roles[0]]) or (j % 2 == 1 and role == conv.roles[1]):
                 conv.append_message(role, sentence["value"])
             else:
-                rank0_print(f"The format is illegal: ", source)
                 valid_data = False
+                rank0_print(f"The format is illegal: id={0}".format(sample["id"]))
+                abnormal_samples.write(f"The format is illegal: id={0}, source={1}\n".format(sample["id"], source))
                 break
 
         if valid_data:
@@ -163,14 +167,17 @@ def preprocess(
         if cur_len < tokenizer.model_max_length and cur_len != total_len:
             rank0_print(
                 f"WARNING: tokenization mismatch: {cur_len} vs. {total_len}. (ignored)\n"
-                f"conversation: {conversation}\n"
-                f"target: {target_id}"
             )
-            # target_id[:] = IGNORE_TOKEN_ID
+            abnormal_samples.write(
+                f"WARNING: tokenization mismatch: {cur_len} vs. {total_len}. (ignored)\n"
+                f"conversation: {conversation}\n"
+                f"target: {target_id}")
             continue
 
         inputs.append(input_id.numpy())
         targets.append(target_id.numpy())
+
+    abnormal_samples.close()
 
     tensor_inputs = torch.tensor(inputs, dtype=input_ids.dtype, device=input_ids.device)
     tensor_targets = torch.tensor(targets, dtype=input_ids.dtype, device=input_ids.device)
@@ -189,8 +196,8 @@ class SupervisedDataset(Dataset):
         super(SupervisedDataset, self).__init__()
 
         rank0_print("Formatting inputs...")
-        sources = [example["conversations"] for example in raw_data]
-        data_dict = preprocess(sources, tokenizer)
+        # sources = [example["conversations"] for example in raw_data]
+        data_dict = preprocess(raw_data, tokenizer)
 
         self.input_ids = data_dict["input_ids"]
         self.labels = data_dict["labels"]
@@ -226,7 +233,7 @@ class LazySupervisedDataset(Dataset):
         if i in self.cached_data_dict:
             return self.cached_data_dict[i]
 
-        ret = preprocess([self.raw_data[i]["conversations"]], self.tokenizer)
+        ret = preprocess([self.raw_data[i]], self.tokenizer)
         ret = dict(
             input_ids=ret["input_ids"][0],
             labels=ret["labels"][0],
