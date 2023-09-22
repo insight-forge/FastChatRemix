@@ -88,8 +88,6 @@ def preprocess(
     conv = get_conversation_template("vicuna")
     roles = {"human": conv.roles[0], "gpt": conv.roles[1], "system": "SYSTEM", "function": "FUNCTION"}
 
-    abnormal_samples = open("abnormal_samples.log", "w", encoding="utf-8")
-
     # Apply prompt templates
     conversations = []
     for i, sample in enumerate(sources):
@@ -111,8 +109,7 @@ def preprocess(
                 conv.append_message(role, sentence["value"])
             else:
                 valid_data = False
-                rank0_print(f"The format is illegal: id={0}".format(sample["id"]))
-                abnormal_samples.write(f"The format is illegal: id={0}, source={1}\n".format(sample["id"], source))
+                rank0_print(f"The format is illegal: id={sample['id']}, source={source}")
                 break
 
         if valid_data:
@@ -167,17 +164,12 @@ def preprocess(
         if cur_len < tokenizer.model_max_length and cur_len != total_len:
             rank0_print(
                 f"WARNING: tokenization mismatch: {cur_len} vs. {total_len}. (ignored)\n"
+                f"#conversation#: {conversation}"
             )
-            abnormal_samples.write(
-                f"WARNING: tokenization mismatch: {cur_len} vs. {total_len}. (ignored)\n"
-                f"conversation: {conversation}\n"
-                f"target: {target_id}")
             continue
 
         inputs.append(input_id.numpy())
         targets.append(target_id.numpy())
-
-    abnormal_samples.close()
 
     tensor_inputs = torch.tensor(inputs, dtype=input_ids.dtype, device=input_ids.device)
     tensor_targets = torch.tensor(targets, dtype=input_ids.dtype, device=input_ids.device)
