@@ -124,18 +124,19 @@ def preprocess(
         max_length=tokenizer.model_max_length,
         truncation=True,
     ).input_ids
-    targets = input_ids.clone()
 
     assert conv.sep_style == SeparatorStyle.ADD_COLON_TWO
 
     # Mask targets. Only compute loss on the assistant outputs.
+    inputs, targets = [], []
     sep = conv.sep + conv.roles[1] + ": "
-    for conversation, target in zip(conversations, targets):
-        total_len = int(target.ne(tokenizer.pad_token_id).sum())
+    for conversation, input_id in zip(conversations, input_ids):
+        target_id = input_id.clone()
+        total_len = int(target_id.ne(tokenizer.pad_token_id).sum())
 
         turns = conversation.split(conv.sep2)
         cur_len = 1
-        target[:cur_len] = IGNORE_TOKEN_ID
+        target_id[:cur_len] = IGNORE_TOKEN_ID
         for i, turn in enumerate(turns):
             if turn == "":
                 break
@@ -149,29 +150,35 @@ def preprocess(
             instruction_len = len(tokenizer(parts[0]).input_ids) - 2
 
             # Ignore the user instructions
-            target[cur_len : cur_len + instruction_len] = IGNORE_TOKEN_ID
+            target_id[cur_len : cur_len + instruction_len] = IGNORE_TOKEN_ID
             cur_len += turn_len
 
-        target[cur_len:] = IGNORE_TOKEN_ID
+        target_id[cur_len:] = IGNORE_TOKEN_ID
 
-        if False:  # Inspect and check the correctness of masking
-            z = target.clone()
-            z = torch.where(z == IGNORE_TOKEN_ID, tokenizer.unk_token_id, z)
-            rank0_print(tokenizer.decode(z))
+        # if False:  # Inspect and check the correctness of masking
+        #     z = target.clone()
+        #     z = torch.where(z == IGNORE_TOKEN_ID, tokenizer.unk_token_id, z)
+        #     rank0_print(tokenizer.decode(z))
 
-        if cur_len < tokenizer.model_max_length:
-            if cur_len != total_len:
-                rank0_print(
-                    f"WARNING: tokenization mismatch: {cur_len} vs. {total_len}. (ignored)\n"
-                    f"conversation: {conversation}\n"
-                    f"target: {target}"
-                )
-                target[:] = IGNORE_TOKEN_ID
+        if cur_len < tokenizer.model_max_length and cur_len != total_len:
+            rank0_print(
+                f"WARNING: tokenization mismatch: {cur_len} vs. {total_len}. (ignored)\n"
+                f"conversation: {conversation}\n"
+                f"target: {target_id}"
+            )
+            # target_id[:] = IGNORE_TOKEN_ID
+            continue
+
+        inputs.append(input_id.numpy())
+        targets.append(target_id.numpy())
+
+    tensor_inputs = torch.tensor(inputs, dtype=input_ids.dtype, device=input_ids.device)
+    tensor_targets = torch.tensor(targets, dtype=input_ids.dtype, device=input_ids.device)
 
     return dict(
-        input_ids=input_ids,
-        labels=targets,
-        attention_mask=input_ids.ne(tokenizer.pad_token_id),
+        input_ids=tensor_inputs,
+        labels=tensor_targets,
+        attention_mask=tensor_inputs.ne(tokenizer.pad_token_id),
     )
 
 
