@@ -1,8 +1,8 @@
 """
 Conversation prompt templates.
 
-We kindly request that you import fastchat instead of copying this file if you want to use it.
-You can contribute back the changes you want to make.
+We kindly request that you import fastchat instead of copying this file if you wish to use it.
+If you have any changes in mind, please contribute back so the community can benefit collectively and continue to maintain these valuable templates.
 """
 
 import dataclasses
@@ -204,12 +204,12 @@ class Conversation:
         elif self.sep_style == SeparatorStyle.FALCON_CHAT:
             ret = ""
             if self.system_message:
-                ret += "System: " + self.system_message + self.sep
+                ret += system_prompt + self.sep
             for role, message in self.messages:
                 if message:
                     ret += role + ": " + message + self.sep
                 else:
-                    ret += role + ": "
+                    ret += role + ":"
 
             return ret
         else:
@@ -840,6 +840,19 @@ register_conv_template(
     )
 )
 
+# Mistral template
+# source: https://docs.mistral.ai/llm/mistral-instruct-v0.1#chat-template
+register_conv_template(
+    Conversation(
+        name="mistral",
+        system_template="",
+        roles=("[INST] ", " [/INST]"),
+        sep_style=SeparatorStyle.LLAMA2,
+        sep="",
+        sep2=" </s>",
+    )
+)
+
 # llama2 template
 # reference: https://huggingface.co/blog/codellama#conversational-instructions
 # reference: https://github.com/facebookresearch/llama/blob/1a240688810f8036049e8da36b073f63d2ac552c/llama/generation.py#L212
@@ -958,6 +971,7 @@ register_conv_template(
     Conversation(
         name="falcon-chat",
         roles=("User", "Falcon"),
+        system_template="System: {system_message}",
         messages=[],
         sep_style=SeparatorStyle.FALCON_CHAT,
         sep="\n",
@@ -980,10 +994,28 @@ register_conv_template(
     )
 )
 
+# Metharme formatting for Pygmalion models
+# source: https://huggingface.co/PygmalionAI/pygmalion-2-13b
+register_conv_template(
+    Conversation(
+        name="metharme",
+        system_template="<|system|>{system_message}",
+        system_message="""Enter RP mode. You shall reply to the user while staying 
+        in character. Your responses must be detailed, creative, immersive, and drive the scenario
+        forward.""",
+        roles=("<|user|>", "<|model|>"),
+        sep_style=SeparatorStyle.NO_COLON_SINGLE,
+        sep="",
+        stop_str="<|user|>",
+    )
+)
+
 
 if __name__ == "__main__":
-    print("Vicuna template:")
-    conv = get_conv_template("qwen-7b-chat")
+    from fastchat.conversation import get_conv_template
+
+    print("-- Vicuna template --")
+    conv = get_conv_template("vicuna_v1.1")
     conv.append_message(conv.roles[0], "Hello!")
     conv.append_message(conv.roles[1], "Hi!")
     conv.append_message(conv.roles[0], "How are you?")
@@ -991,12 +1023,32 @@ if __name__ == "__main__":
     print(conv.get_prompt())
 
     print("\n")
-    #
-    # print("Llama-2 template:")
-    # conv = get_conv_template("llama-2")
-    # conv.set_system_message("You are a helpful, respectful and honest assistant.")
-    # conv.append_message(conv.roles[0], "Hello!")
-    # conv.append_message(conv.roles[1], "Hi!")
-    # conv.append_message(conv.roles[0], "How are you?")
-    # conv.append_message(conv.roles[1], None)
-    # print(conv.get_prompt())
+
+    print("-- Llama-2 template --")
+    conv = get_conv_template("llama-2")
+    conv.set_system_message("You are a helpful, respectful and honest assistant.")
+    conv.append_message(conv.roles[0], "Hello!")
+    conv.append_message(conv.roles[1], "Hi!")
+    conv.append_message(conv.roles[0], "How are you?")
+    conv.append_message(conv.roles[1], None)
+    print(conv.get_prompt())
+
+    print("\n")
+
+    print("-- ChatGPT template --")
+    conv = get_conv_template("chatgpt")
+    conv.append_message(conv.roles[0], "Hello!")
+    conv.append_message(conv.roles[1], "Hi!")
+    conv.append_message(conv.roles[0], "How are you?")
+    conv.append_message(conv.roles[1], None)
+    print(conv.to_openai_api_messages())
+
+    print("\n")
+
+    print("-- Claude template --")
+    conv = get_conv_template("claude")
+    conv.append_message(conv.roles[0], "Hello!")
+    conv.append_message(conv.roles[1], "Hi!")
+    conv.append_message(conv.roles[0], "How are you?")
+    conv.append_message(conv.roles[1], None)
+    print(conv.get_prompt())
