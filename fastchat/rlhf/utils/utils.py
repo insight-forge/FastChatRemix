@@ -103,7 +103,7 @@ def save_rm_hf_format(rm_model, tokenizer, args):
                               checkpoint_dir,
                               zero_stage=args.zero_stage)
 
-    if args.save_total_limit > 0:
+    if args.save_total_limit and args.save_total_limit > 0:
         ordering_and_checkpoint_path = []
         glob_checkpoints = [str(x) for x in Path(args.output_dir).glob(f"{checkpoint_prefix}-*") if os.path.isdir(x)]
         for path in glob_checkpoints:
