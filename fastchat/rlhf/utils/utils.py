@@ -3,10 +3,13 @@
 
 # DeepSpeed Team
 import os
+import shutil
 import fnmatch
+import re
 import torch
 import random
 import numpy as np
+from pathlib import Path
 from transformers import set_seed, AutoTokenizer
 import json
 import deepspeed
@@ -84,22 +87,38 @@ def load_hf_tokenizer(model_name_or_path, fast_tokenizer=True):
 
 def save_rm_hf_format(rm_model, tokenizer, args):
     print_rank_0(f'global_step {args.global_step}, saving model ...', args.global_rank)
+    checkpoint_prefix = 'checkpoint-step'
     if args.lora_dim > 0:
         rm_model = convert_lora_to_linear_layer(rm_model)
     global_step_str = str(args.global_step)
     global_step_str = '0' * (5 - len(global_step_str)) + global_step_str
-    output_dir = os.path.join(args.output_dir, f'global_step_{global_step_str}')
+    checkpoint_dir = os.path.join(args.output_dir, f'{checkpoint_prefix}-{global_step_str}')
 
     if args.global_rank == 0:
-        save_hf_format(rm_model, tokenizer, output_dir)
+        save_hf_format(rm_model, tokenizer, checkpoint_dir)
     if args.zero_stage == 3:
         # for zero stage 3, each gpu only has a part of the model, so we need to save the model on each gpu by using DS-Engine
         save_zero_three_model(rm_model,
                               args.global_rank,
-                              output_dir,
+                              checkpoint_dir,
                               zero_stage=args.zero_stage)
 
-    # old_model = [name for name in os.listdir(args.output_dir) if fnmatch.fnmatch(name, 'global_step_*')]
+    if args.save_total_limit > 0:
+        ordering_and_checkpoint_path = []
+        glob_checkpoints = [str(x) for x in Path(args.output_dir).glob(f"{checkpoint_prefix}-*") if os.path.isdir(x)]
+        for path in glob_checkpoints:
+            regex_match = re.match(f".*{checkpoint_prefix}-([0-9]+)", path)
+            if regex_match is not None and regex_match.groups() is not None:
+                ordering_and_checkpoint_path.append((int(regex_match.groups()[0]), path))
+
+        checkpoints_sorted = sorted(ordering_and_checkpoint_path)
+        checkpoints_sorted = [checkpoint[1] for checkpoint in checkpoints_sorted]
+        save_total_limit = args.save_total_limit
+        number_of_checkpoints_to_delete = max(0, len(checkpoints_sorted) - save_total_limit)
+        checkpoints_to_be_deleted = checkpoints_sorted[:number_of_checkpoints_to_delete]
+        for checkpoint in checkpoints_to_be_deleted:
+            print_rank_0(f"Deleting older checkpoint [{checkpoint}] due to args.save_total_limit")
+            shutil.rmtree(checkpoint, ignore_errors=True)
 
 
 def save_hf_format(model, tokenizer, output_dir, sub_folder=""):

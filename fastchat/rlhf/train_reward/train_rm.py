@@ -125,6 +125,10 @@ def parse_args():
                         type=int,
                         default=None,
                         help="Where to store the model.")
+    parser.add_argument("--save_total_limit",
+                        type=int,
+                        default=None,
+                        help="Where to store the model.")
     parser.add_argument(
         "--lr_scheduler_type",
         type=SchedulerType,
