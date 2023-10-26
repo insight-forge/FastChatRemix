@@ -1,8 +1,5 @@
 #!/usr/bin/env python
-# Copyright (c) Microsoft Corporation.
-# SPDX-License-Identifier: Apache-2.0
 
-# DeepSpeed Team
 import argparse
 import os
 import math
@@ -27,11 +24,14 @@ from deepspeed.accelerator import get_accelerator
 sys.path.append(
     os.path.abspath(os.path.join(os.path.dirname(__file__), os.path.pardir)))
 from fastchat.rlhf.utils.model.model_utils import create_critic_model
-from fastchat.rlhf.utils.data.data_utils import create_prompt_dataset, DataCollatorReward
-from fastchat.rlhf.utils.utils import print_rank_0, to_device, save_hf_format, set_random_seed, get_all_reduce_mean, get_optimizer_grouped_parameters, save_zero_three_model, load_hf_tokenizer
+from fastchat.rlhf.utils.data.data_utils import DataCollatorReward
+from fastchat.rlhf.utils.utils import print_rank_0, to_device, save_rm_hf_format, set_random_seed, get_all_reduce_mean, get_optimizer_grouped_parameters, save_zero_three_model, load_hf_tokenizer
 from fastchat.rlhf.utils.ds_utils import get_train_ds_config
-from fastchat.rlhf.utils.module.lora import convert_linear_layer_to_lora, convert_lora_to_linear_layer, only_optimize_lora_parameters, make_model_gradient_checkpointing_compatible
+from fastchat.rlhf.utils.module.lora import convert_linear_layer_to_lora, only_optimize_lora_parameters, make_model_gradient_checkpointing_compatible
 from fastchat.model.model_adapter import get_conversation_template
+
+
+global_rank=None
 
 def parse_args():
     parser = argparse.ArgumentParser(
@@ -50,13 +50,6 @@ def parse_args():
                         '1) a single data path, 2) multiple datasets in the'
                         'form: dataset1-path dataset2-path ...')
     parser.add_argument(
-        "--conversation_template",
-        type=str,
-        help=
-        "The conversation template name",
-        required=True,
-    )
-    parser.add_argument(
         '--lazy_preprocess',
         action='store_true',
         help='Enable lazy preprocess')
@@ -66,6 +59,19 @@ def parse_args():
         help=
         "Path to pretrained model or model identifier from huggingface.co/models.",
         required=True,
+    )
+    parser.add_argument(
+        "--transformer_name_in_causal_lm",
+        type=str,
+        choices=["transformer", "model"],
+        help=
+        "The transformer variable name in causal_lm. If the model can not load by transformers.AutoModel, please specify this argument",
+        default=None,
+    )
+    parser.add_argument(
+        "--use_flash_attn",
+        action='store_true',
+        help="user flash attention",
     )
     parser.add_argument(
         "--num_padding_at_beginning",
@@ -115,6 +121,10 @@ def parse_args():
         help=
         "Number of updates steps to accumulate before performing a backward/update pass.",
     )
+    parser.add_argument("--save_steps",
+                        type=int,
+                        default=None,
+                        help="Where to store the model.")
     parser.add_argument(
         "--lr_scheduler_type",
         type=SchedulerType,
@@ -126,14 +136,18 @@ def parse_args():
         ],
     )
     parser.add_argument(
-        "--num_warmup_steps",
-        type=int,
-        default=0,
+        "--warmup_ratio",
+        type=float,
+        default=0.,
         help="Number of steps for the warmup in the lr scheduler.")
     parser.add_argument("--output_dir",
                         type=str,
-                        default=None,
+                        required=True,
                         help="Where to store the model.")
+    parser.add_argument("--cache_dir",
+                        type=str,
+                        default='/tmp',
+                        help="Where to cache the model.")
     parser.add_argument("--seed",
                         type=int,
                         default=1234,
@@ -198,18 +212,25 @@ def parse_args():
 def preprocess(
     sources,
     tokenizer: transformers.PreTrainedTokenizer,
+    model_path: str = "vicuna"
 ):
-    conv = get_conversation_template("vicuna")
-    roles = {"human": conv.roles[0], "gpt": conv.roles[1]}
+    conv = get_conversation_template(model_path)
+    roles = {
+        "human": conv.roles[0],
+        "user": conv.roles[0],
+        "gpt": conv.roles[1],
+        "assistant": conv.roles[1],
+    }
+
     chosen, rejects = [], []
-    for i, source in enumerate(sources):
+    for source in sources:
         conv.messages = []
-        conv.append_message(conv.roles[0], source["prompt"])
-        conv.append_message(conv.roles[1], source["chosen"])
+        for i, conversations in enumerate(source["conversations"]):
+            conv.append_message(roles[conversations["from"].lower()], conversations["value"])
+        conv.append_message(conv.roles[1], source["chosen"]["value"])
         chosen.append(conv.get_prompt())
-        conv.messages = []
-        conv.append_message(conv.roles[0], source["prompt"])
-        conv.append_message(conv.roles[1], source["reject"])
+
+        conv.update_last_message(source["rejected"]["value"])
         rejects.append(conv.get_prompt())
 
     chosen = tokenizer(
@@ -233,11 +254,10 @@ def preprocess(
 class LazyRewardDataset(Dataset):
     """Dataset for training reward model."""
 
-    def __init__(self, raw_data, tokenizer: transformers.PreTrainedTokenizer, max):
+    def __init__(self, raw_data, tokenizer: transformers.PreTrainedTokenizer, model_name):
         super(LazyRewardDataset, self).__init__()
         self.tokenizer = tokenizer
-
-        print_rank_0("Formatting inputs...Skip in lazy mode", global_rank)
+        self.model_path = model_name
         self.tokenizer = tokenizer
         self.raw_data = raw_data
         self.cached_data_dict = {}
@@ -249,8 +269,8 @@ class LazyRewardDataset(Dataset):
         if i in self.cached_data_dict:
             return self.cached_data_dict[i]
 
-        ret = preprocess([self.raw_data[i]], self.tokenizer)
-        ret = (ret[0] for _ in ret)
+        ret = preprocess([self.raw_data[i]], self.tokenizer, self.model_path)
+        ret = [_[0:1] for _ in ret]
         self.cached_data_dict[i] = ret
 
         return ret
@@ -258,25 +278,25 @@ class LazyRewardDataset(Dataset):
 class RewardDataset(Dataset):
     """Dataset for training reward model."""
 
-    def __init__(self, raw_data, tokenizer: transformers.PreTrainedTokenizer):
+    def __init__(self, raw_data, tokenizer: transformers.PreTrainedTokenizer, model_name):
+        global global_rank
         super(RewardDataset, self).__init__()
         self.tokenizer = tokenizer
 
-        print_rank_0("Formatting inputs...Skip in lazy mode", global_rank)
         self.tokenizer = tokenizer
         self.raw_data = raw_data
-        self.data = preprocess([self.raw_data[i]], self.tokenizer)
+        self.data = preprocess(self.raw_data, self.tokenizer, model_name)
 
 
     def __len__(self):
         return len(self.raw_data)
 
     def __getitem__(self, i) -> Dict[str, torch.Tensor]:
-        return (self.data[i] for _ in self.data)
+        return [_[i:i+1] for _ in self.data]
 
 
 
-def make_reward_data_module(
+def make_reward_dataset(
         tokenizer: transformers.PreTrainedTokenizer,
         args
 ):
@@ -284,23 +304,28 @@ def make_reward_data_module(
         LazyRewardDataset if args.lazy_preprocess else RewardDataset
     )
     print_rank_0("Loading data...", args.global_rank)
-    # json format :{
-    #  "prompt": "",
-    #  "chosen": "",
-    #  "rejected": ""
-    #  }
-    train_json = json.load(open(args.data_path, "r"))
-    train_dataset = dataset_cls(train_json, tokenizer=tokenizer)
+    # json format :
+    # [{
+    # "id":"1",
+    #  "conversations": [{"from":"", "value":""},...],
+    #  "chosen": {"from":"", "value":""},
+    #  "rejected": {"from":"", "value":""}
+    #  }]
+    train_json = []
+    for path in args.data_path:
+        train_json.extend(json.load(open(path, "r")))
+    train_dataset = dataset_cls(train_json, tokenizer=tokenizer, model_name=args.model_name_or_path)
 
     if args.eval_data_path:
-        eval_json = json.load(open(args.eval_data_path, "r"))
-        eval_dataset = dataset_cls(eval_json, tokenizer=tokenizer)
+        eval_json = []
+        for path in args.eval_data_path:
+            eval_json.extend(json.load(open(path, "r")))
+        # eval_json = json.load(open(args.eval_data_path, "r"))
+        eval_dataset = dataset_cls(eval_json, tokenizer=tokenizer, model_name=args.model_name_or_path)
     else:
         eval_dataset = None
 
     return train_dataset, eval_dataset
-
-global_rank = None
 
 def main():
     global global_rank
@@ -340,6 +365,7 @@ def main():
         model_max_length=args.max_seq_len,
         padding_side="right",
         use_fast=False,
+        trust_remote_code=True
     )
     tokenizer.eos_token_id = tokenizer.eod_id
     tokenizer.pad_token_id = tokenizer.eos_token_id
@@ -349,7 +375,11 @@ def main():
                                    ds_config,
                                    args.num_padding_at_beginning,
                                    disable_dropout=args.disable_dropout,
-                                   trust_remote_code=True)
+                                   trust_remote_code=True,
+                                   transformer_name_in_causal_lm=args.transformer_name_in_causal_lm,
+                                   use_flash_attn=args.use_flash_attn)
+    print_rank_0("model_name_or_path config:", args.global_rank)
+    print_rank_0(rm_model.config, args.global_rank)
 
     if args.lora_dim > 0:
         rm_model = convert_linear_layer_to_lora(rm_model,
@@ -359,7 +389,7 @@ def main():
             rm_model = only_optimize_lora_parameters(rm_model)
             rm_model = make_model_gradient_checkpointing_compatible(rm_model)
 
-    train_dataset, eval_dataset = make_reward_data_module(tokenizer=tokenizer, args=args)
+    train_dataset, eval_dataset = make_reward_dataset(tokenizer=tokenizer, args=args)
 
     # DataLoaders creation:
     data_collator = DataCollatorReward()
@@ -416,11 +446,11 @@ def main():
 
     num_update_steps_per_epoch = math.ceil(
         len(train_dataloader) / args.gradient_accumulation_steps)
-
+    num_warmup_steps = args.num_train_epochs * num_update_steps_per_epoch * args.warmup_ratio
     lr_scheduler = get_scheduler(
         name=args.lr_scheduler_type,
         optimizer=optimizer,
-        num_warmup_steps=args.num_warmup_steps,
+        num_warmup_steps=num_warmup_steps,
         num_training_steps=args.num_train_epochs * num_update_steps_per_epoch,
     )
 
@@ -445,7 +475,7 @@ def main():
     print_rank_0(
         f"chosen_last_scores (higher is better) : {reward_score}, acc (higher is better) : {acc}",
         args.global_rank)
-
+    args.global_step = 0
     for epoch in range(args.num_train_epochs):
         print_rank_0(
             f"Beginning of Epoch {epoch+1}/{args.num_train_epochs}, Total Micro Batches {len(train_dataloader)}",
@@ -453,12 +483,15 @@ def main():
         rm_model.train()
         mean_loss = 0
         for step, batch in enumerate(train_dataloader):
+            args.global_step += 1
             batch = to_device(batch, device)
             outputs = rm_model(**batch, use_cache=False)
             loss = outputs["loss"]
             rm_model.backward(loss)
             rm_model.step()
             mean_loss += loss.item()
+            if args.save_steps and args.global_step % (args.save_steps * args.gradient_accumulation_steps) == 0:
+                save_rm_hf_format(rm_model, tokenizer, args)
         print_rank_0(
             f"Epoch {epoch+1}/{args.num_train_epochs} with loss {mean_loss/(step+1)}",
             args.global_rank)
@@ -472,18 +505,8 @@ def main():
             args.global_rank)
         rm_model.tput_timer.update_epoch_count()
 
-    if args.output_dir is not None:
-        print_rank_0('saving model ...', args.global_rank)
-        rm_model = convert_lora_to_linear_layer(rm_model)
+    save_rm_hf_format(rm_model, tokenizer, args)
 
-        if args.global_rank == 0:
-            save_hf_format(rm_model, tokenizer, args)
-        if args.zero_stage == 3:
-            # for zero stage 3, each gpu only has a part of the model, so we need to save the model on each gpu by using DS-Engine
-            save_zero_three_model(rm_model,
-                                  args.global_rank,
-                                  args.output_dir,
-                                  zero_stage=args.zero_stage)
 
 
 if __name__ == "__main__":

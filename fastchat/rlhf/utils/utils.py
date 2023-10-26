@@ -3,6 +3,7 @@
 
 # DeepSpeed Team
 import os
+import fnmatch
 import torch
 import random
 import numpy as np
@@ -13,6 +14,7 @@ from deepspeed.runtime.zero.partition_parameters import ZeroParamStatus
 from deepspeed.accelerator import get_accelerator
 import torch.nn as nn
 
+from fastchat.rlhf.utils.module.lora import convert_lora_to_linear_layer
 
 def print_rank_0(msg, rank=0):
     if rank <= 0:
@@ -80,12 +82,32 @@ def load_hf_tokenizer(model_name_or_path, fast_tokenizer=True):
     return tokenizer
 
 
-def save_hf_format(model, tokenizer, args, sub_folder=""):
+def save_rm_hf_format(rm_model, tokenizer, args):
+    print_rank_0(f'global_step {args.global_step}, saving model ...', args.global_rank)
+    if args.lora_dim > 0:
+        rm_model = convert_lora_to_linear_layer(rm_model)
+    global_step_str = str(args.global_step)
+    global_step_str = '0' * (5 - len(global_step_str)) + global_step_str
+    output_dir = os.path.join(args.output_dir, f'global_step_{global_step_str}')
+
+    if args.global_rank == 0:
+        save_hf_format(rm_model, tokenizer, output_dir)
+    if args.zero_stage == 3:
+        # for zero stage 3, each gpu only has a part of the model, so we need to save the model on each gpu by using DS-Engine
+        save_zero_three_model(rm_model,
+                              args.global_rank,
+                              output_dir,
+                              zero_stage=args.zero_stage)
+
+    # old_model = [name for name in os.listdir(args.output_dir) if fnmatch.fnmatch(name, 'global_step_*')]
+
+
+def save_hf_format(model, tokenizer, output_dir, sub_folder=""):
     # used to save huggingface format, so we can use it for hf.from_pretrained
     model_to_save = model.module if hasattr(model, 'module') else model
     CONFIG_NAME = "config.json"
     WEIGHTS_NAME = "pytorch_model.bin"
-    output_dir = os.path.join(args.output_dir, sub_folder)
+    output_dir = os.path.join(output_dir, sub_folder)
     os.makedirs(output_dir, exist_ok=True)
     output_model_file = os.path.join(output_dir, WEIGHTS_NAME)
     output_config_file = os.path.join(output_dir, CONFIG_NAME)

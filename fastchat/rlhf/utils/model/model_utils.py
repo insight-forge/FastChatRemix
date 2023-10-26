@@ -8,6 +8,7 @@ import torch
 from transformers import (
     AutoConfig,
     AutoModel,
+    AutoModelForCausalLM
 )
 from huggingface_hub import snapshot_download
 from transformers.deepspeed import HfDeepSpeedConfig
@@ -16,14 +17,19 @@ from .reward_model import RewardModel
 from ..utils import load_state_dict_into_model
 
 
-def create_hf_model(model_class,
-                    model_name_or_path,
-                    tokenizer,
-                    ds_config=None,
-                    rlhf_training=False,
-                    disable_dropout=False,
-                    trust_remote_code=False):
-    model_config = AutoConfig.from_pretrained(model_name_or_path)
+def create_hf_model(
+        model_class,
+        model_name_or_path,
+        tokenizer,
+        ds_config=None,
+        rlhf_training=False,
+        disable_dropout=False,
+        trust_remote_code=False,
+        use_flash_attn=None
+):
+    model_config = AutoConfig.from_pretrained(model_name_or_path, trust_remote_code=trust_remote_code)
+    if use_flash_attn is not None:
+        model_config.use_flash_attn = use_flash_attn  # for qwen
     if disable_dropout:
         model_config.dropout = 0.0
     # Note: dschf is defined in function scope to avoid global effects
@@ -34,7 +40,7 @@ def create_hf_model(model_class,
         dschf = None
     if rlhf_training:
         # the weight loading is handled by create critic model
-        model = model_class.from_config(model_config)
+        model = model_class.from_config(model_config, trust_remote_code=trust_remote_code)
     else:
         model = model_class.from_pretrained(
             model_name_or_path,
@@ -60,15 +66,29 @@ def create_critic_model(model_name_or_path,
                         rlhf_training=False,
                         disable_dropout=False,
                         zero_stage=0,
-                        trust_remote_code=False):
+                        trust_remote_code=False,
+                        transformer_name_in_causal_lm=None,
+                        use_flash_attn=None):
     # OPT model family always put a padding token at the beginning of the sequence,
     # we did not see this in other models but not sure if it is a general rule
 
     import time
+    if transformer_name_in_causal_lm:
+        model_class = AutoModelForCausalLM
+    else:
+        model_class = AutoModel
 
     start = time.time()
-    critic_model = create_hf_model(AutoModel, model_name_or_path, tokenizer,
-                                   ds_config, rlhf_training, disable_dropout, trust_remote_code)
+    critic_model = create_hf_model(model_class, model_name_or_path, tokenizer,
+                                   ds_config, rlhf_training, disable_dropout,
+                                   trust_remote_code, use_flash_attn)
+
+    if transformer_name_in_causal_lm and hasattr(critic_model, transformer_name_in_causal_lm):
+        critic_model = getattr(critic_model, transformer_name_in_causal_lm)
+    else:
+        raise ValueError("The transformer variable name in CausalLM error, "
+                         "please check the correct it's name in the python modeling file.")
+
     end = time.time()
     if torch.distributed.get_rank() == 0:
         print(f"> Creating model from_config took {end - start} seconds")
