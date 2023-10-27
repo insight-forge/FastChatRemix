@@ -129,6 +129,10 @@ def parse_args():
                         type=int,
                         default=None,
                         help="Where to store the model.")
+    parser.add_argument("--eval_steps",
+                        type=int,
+                        default=0,
+                        help="default(0) means to evaluate per epoch, otherwise, evaluate per eval_steps.")
     parser.add_argument(
         "--lr_scheduler_type",
         type=SchedulerType,
@@ -198,14 +202,21 @@ def parse_args():
         help=
         "Initial LoRA learning rate (after the potential warmup period) to use."
     )
-    ## Tensorboard logging
-    parser.add_argument('--enable_tensorboard',
-                        action='store_true',
-                        help='Enable tensorboard logging')
-    parser.add_argument('--tensorboard_path',
+    ## logging
+    parser.add_argument('--report_to',
                         type=str,
-                        default="step2_tensorboard")
-
+                        choices=['tensorboard', 'wandb'],
+                        help='Enable logging',
+                        default=None)
+    ## wandb
+    parser.add_argument('--report_project',
+                        type=str,
+                        default='deepspeed',
+                        help='Report tensorboard path or project of wandb')
+    parser.add_argument('--report_name',
+                        type=str,
+                        default='default_run_name',
+                        help='Report tensorboard file name or group name of wandb')
 
 
     parser = deepspeed.add_config_arguments(parser)
@@ -349,9 +360,10 @@ def main():
     ds_config = get_train_ds_config(offload=args.offload,
                                     dtype=args.dtype,
                                     stage=args.zero_stage,
-                                    enable_tensorboard=args.enable_tensorboard,
-                                    tb_path=args.tensorboard_path,
-                                    tb_name="step2_model")
+                                    report_to=args.report_to,
+                                    report_project=args.report_project,
+                                    report_name=args.report_name
+                                    )
     ds_config[
         'train_micro_batch_size_per_gpu'] = args.per_device_train_batch_size
     ds_config[
@@ -382,7 +394,7 @@ def main():
                                    trust_remote_code=True,
                                    transformer_name_in_causal_lm=args.transformer_name_in_causal_lm,
                                    use_flash_attn=args.use_flash_attn)
-    print_rank_0("model_name_or_path config:", args.global_rank)
+    print_rank_0(f"{args.model_name_or_path} config:", args.global_rank)
     print_rank_0(rm_model.config, args.global_rank)
 
     if args.lora_dim > 0:
@@ -472,9 +484,7 @@ def main():
     # Train!
     print_rank_0("***** Running training *****", args.global_rank)
 
-    print_rank_0(
-        f"***** Evaluating reward, Epoch {0}/{args.num_train_epochs} *****",
-        args.global_rank)
+    print_rank_0(f"***** Evaluating init reward *****", args.global_rank)
     reward_score, acc = evaluation_reward(rm_model, eval_dataloader)
     print_rank_0(
         f"chosen_last_scores (higher is better) : {reward_score}, acc (higher is better) : {acc}",
@@ -491,22 +501,42 @@ def main():
             batch = to_device(batch, device)
             outputs = rm_model(**batch, use_cache=False)
             loss = outputs["loss"]
+
             rm_model.backward(loss)
             rm_model.step()
             mean_loss += loss.item()
+
             if args.save_steps and args.global_step % (args.save_steps * args.gradient_accumulation_steps) == 0:
                 save_rm_hf_format(rm_model, tokenizer, args)
+            if args.eval_steps > 0 and args.global_step % (args.eval_steps * args.gradient_accumulation_steps) == 0:
+                reward_score, acc = evaluation_reward(rm_model, eval_dataloader)
+                rm_model.train()
+                if rm_model.monitor.enabled:
+                    if args.global_rank == 0:
+                        rm_model.monitor.write_events([
+                            (f"Eval/reward_score", reward_score,
+                             args.global_step // args.gradient_accumulation_steps),
+                            (f"Eval/acc", acc,
+                             args.global_step // args.gradient_accumulation_steps),
+                        ])
+
+                    print_rank_0(
+                        f"args.global_step chosen_last_scores (higher is better) : {reward_score}, acc (higher is better) : {acc}",
+                        args.global_rank)
+
         print_rank_0(
             f"Epoch {epoch+1}/{args.num_train_epochs} with loss {mean_loss/(step+1)}",
             args.global_rank)
-        # Evaluate reward_loss on the validation set.
-        print_rank_0(
-            f"***** Evaluating reward, Epoch {epoch+1}/{args.num_train_epochs} *****",
-            args.global_rank)
-        reward_score, acc = evaluation_reward(rm_model, eval_dataloader)
-        print_rank_0(
-            f"chosen_last_scores (higher is better) : {reward_score}, acc (higher is better) : {acc}",
-            args.global_rank)
+
+        if args.eval_steps == 0:
+            # Evaluate reward_loss on the validation set.
+            print_rank_0(
+                f"***** Evaluating reward, Epoch {epoch + 1}/{args.num_train_epochs} *****",
+                args.global_rank)
+            reward_score, acc = evaluation_reward(rm_model, eval_dataloader)
+            print_rank_0(
+                f"chosen_last_scores (higher is better) : {reward_score}, acc (higher is better) : {acc}",
+                args.global_rank)
         rm_model.tput_timer.update_epoch_count()
 
     save_rm_hf_format(rm_model, tokenizer, args)
