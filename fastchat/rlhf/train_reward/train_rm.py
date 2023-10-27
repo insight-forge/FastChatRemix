@@ -521,7 +521,7 @@ def main():
                         ])
 
                     print_rank_0(
-                        f"args.global_step chosen_last_scores (higher is better) : {reward_score}, acc (higher is better) : {acc}",
+                        f"step = {args.global_step // args.gradient_accumulation_steps} chosen_last_scores (higher is better) : {reward_score}, acc (higher is better) : {acc}",
                         args.global_rank)
 
         print_rank_0(
