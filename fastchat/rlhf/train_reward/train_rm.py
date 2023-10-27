@@ -539,7 +539,7 @@ def main():
                 args.global_rank)
         rm_model.tput_timer.update_epoch_count()
 
-    save_rm_hf_format(rm_model, tokenizer, args)
+    save_rm_hf_format(rm_model, tokenizer, args, final=True)
 
 
 

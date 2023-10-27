@@ -20,10 +20,10 @@ def get_train_ds_config(offload,
                         pin_parameters=True,
                         tp_gather_partition_size=8,
                         max_out_tokens=512,
-                        enable_tensorboard=False,
                         enable_mixed_precision_lora=False,
-                        tb_path="",
-                        tb_name=""):
+                        report_to=None,
+                        report_project="ds_report",
+                        report_name=""):
 
     device = "cpu" if offload else "none"
     if dtype == "fp16":
@@ -55,7 +55,7 @@ def get_train_ds_config(offload,
         if dist.get_world_size() != get_accelerator().device_count():
             zero_opt_dict["zero_hpz_partition_size"] = get_accelerator(
             ).device_count()
-    return {
+    ds_config = {
         "train_batch_size": GLOBAL_BATCH_SIZE,
         "train_micro_batch_size_per_gpu": MICRO_BATCH_SIZE,
         "steps_per_print": 10,
@@ -71,13 +71,22 @@ def get_train_ds_config(offload,
             "release_inference_cache": release_inference_cache,
             "pin_parameters": pin_parameters,
             "tp_gather_partition_size": tp_gather_partition_size,
-        },
-        "tensorboard": {
-            "enabled": enable_tensorboard,
-            "output_path": f"{tb_path}/ds_tensorboard_logs/",
-            "job_name": f"{tb_name}_tensorboard"
         }
     }
+    if report_to and report_to=="tensorboard":
+        ds_config["tensorboard"] = {
+            "enabled": True,
+            "output_path": f"{report_project}/ds_tensorboard_logs/",
+            "job_name": f"tensorboard_{report_name}"
+        }
+    if report_to and report_to=="wandb":
+        ds_config["wandb"] = {
+            "enabled": True,
+            "project": report_project,
+            "group": report_name,
+        }
+
+    return ds_config
 
 
 def get_eval_ds_config(offload, dtype, stage=0):

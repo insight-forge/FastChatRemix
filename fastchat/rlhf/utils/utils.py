@@ -85,7 +85,7 @@ def load_hf_tokenizer(model_name_or_path, fast_tokenizer=True):
     return tokenizer
 
 
-def save_rm_hf_format(rm_model, tokenizer, args):
+def save_rm_hf_format(rm_model, tokenizer, args, final=False):
     print_rank_0(f'global_step {args.global_step}, saving model ...', args.global_rank)
     checkpoint_prefix = 'checkpoint-step'
     if args.lora_dim > 0:
@@ -93,7 +93,8 @@ def save_rm_hf_format(rm_model, tokenizer, args):
     global_step_str = str(args.global_step)
     global_step_str = '0' * (5 - len(global_step_str)) + global_step_str
     checkpoint_dir = os.path.join(args.output_dir, f'{checkpoint_prefix}-{global_step_str}')
-
+    if final:
+        checkpoint_dir = os.path.join(args.output_dir, f'final')
     if args.global_rank == 0:
         save_hf_format(rm_model, tokenizer, checkpoint_dir)
     if args.zero_stage == 3:
@@ -103,7 +104,7 @@ def save_rm_hf_format(rm_model, tokenizer, args):
                               checkpoint_dir,
                               zero_stage=args.zero_stage)
 
-    if args.save_total_limit and args.save_total_limit > 0:
+    if not final and args.save_total_limit and args.save_total_limit > 0:
         ordering_and_checkpoint_path = []
         glob_checkpoints = [str(x) for x in Path(args.output_dir).glob(f"{checkpoint_prefix}-*") if os.path.isdir(x)]
         for path in glob_checkpoints:
@@ -117,7 +118,7 @@ def save_rm_hf_format(rm_model, tokenizer, args):
         number_of_checkpoints_to_delete = max(0, len(checkpoints_sorted) - save_total_limit)
         checkpoints_to_be_deleted = checkpoints_sorted[:number_of_checkpoints_to_delete]
         for checkpoint in checkpoints_to_be_deleted:
-            print_rank_0(f"Deleting older checkpoint [{checkpoint}] due to args.save_total_limit")
+            print_rank_0(f"Deleting older checkpoint [{checkpoint}] due to args.save_total_limit", args.global_rank)
             shutil.rmtree(checkpoint, ignore_errors=True)
 
 
