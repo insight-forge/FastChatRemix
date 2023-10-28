@@ -453,7 +453,7 @@ def main():
             print_rank_0("Writing evaluation results...")
             summary_events = [
                 (f"Eval/Samples/acc", acc, model.global_samples),
-                (f"Eval/Samples/reward_score", reward_score, model.global_samples),
+                (f"Eval/Samples/reward_score", scores, model.global_samples),
                 (f"Eval/Samples/rejected_reward_score", r_scores, model.global_samples),
             ]
             model.monitor.write_events(summary_events)
