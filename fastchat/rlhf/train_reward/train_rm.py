@@ -425,6 +425,7 @@ def main():
         correct_predictions = 0
         total_predictions = 0
         scores = 0
+        r_scores = 0
         for step, batch in enumerate(eval_dataloader):
             batch = to_device(batch, device)
             with torch.no_grad():
@@ -435,28 +436,28 @@ def main():
             correct_predictions += (chosen > rejected).sum()
             total_predictions += chosen.shape[0]
             scores += outputs["chosen_mean_scores"].mean().float()
+            r_scores += outputs["rejected_mean_scores"].mean().float()
             # if step == 99:  # For faster evaluation and debugging
             #     break
         acc = correct_predictions / total_predictions
         scores = scores / (step + 1)
+        r_scores = r_scores / (step + 1)
         try:
             acc = get_all_reduce_mean(acc).item()
             scores = get_all_reduce_mean(scores).item()
-            chosen_mean_scores = get_all_reduce_mean(chosen).item()
-            rejected_mean_scores = get_all_reduce_mean(rejected).item()
+            r_scores = get_all_reduce_mean(r_scores).item()
         except:
             pass
 
         if model.monitor.enabled and model.global_rank == 0:
             print_rank_0("Writing evaluation results...")
             summary_events = [
-                (f"Eval/Samples/reward_score", reward_score, model.global_samples),
                 (f"Eval/Samples/acc", acc, model.global_samples),
-                (f"Eval/Samples/chosen_mean_scores", chosen_mean_scores, model.global_samples),
-                (f"Eval/Samples/rejected_mean_scores", rejected_mean_scores, model.global_samples),
+                (f"Eval/Samples/reward_score", reward_score, model.global_samples),
+                (f"Eval/Samples/rejected_reward_score", r_scores, model.global_samples),
             ]
             model.monitor.write_events(summary_events)
-        return scores, acc
+        return scores, acc, r_scores
 
     # Split weights in two groups, one with weight decay and the other not.
     optimizer_grouped_parameters = get_optimizer_grouped_parameters(
@@ -516,10 +517,13 @@ def main():
             if args.save_steps and args.global_step % (args.save_steps * args.gradient_accumulation_steps) == 0:
                 save_rm_hf_format(rm_model, tokenizer, args)
             if args.eval_steps > 0 and args.global_step % (args.eval_steps * args.gradient_accumulation_steps) == 0:
-                reward_score, acc = evaluation_reward(rm_model, eval_dataloader)
+                reward_score, acc, r_reward_score = evaluation_reward(rm_model, eval_dataloader)
                 rm_model.train()
                 print_rank_0(
-                    f"step = {args.global_step // args.gradient_accumulation_steps} chosen_last_scores (higher is better) : {reward_score}, acc (higher is better) : {acc}",
+                    f"step = {args.global_step // args.gradient_accumulation_steps} "
+                    f"chosen_last_scores (higher is better): {reward_score}, "
+                    f"rejected_last_scores (lower is better): {r_reward_score}, "
+                    f"acc (higher is better) : {acc}",
                     args.global_rank)
 
         print_rank_0(
@@ -531,10 +535,10 @@ def main():
             print_rank_0(
                 f"***** Evaluating reward, Epoch {epoch + 1}/{args.num_train_epochs} *****",
                 args.global_rank)
-            reward_score, acc = evaluation_reward(rm_model, eval_dataloader)
-            print_rank_0(
-                f"chosen_last_scores (higher is better) : {reward_score}, acc (higher is better) : {acc}",
-                args.global_rank)
+            reward_score, acc, r_reward_score = evaluation_reward(rm_model, eval_dataloader)
+            print_rank_0(f"Epoch {epoch+1}/{args.num_train_epochs}, chosen_last_scores (higher is better): {reward_score}, "
+                    f"rejected_last_scores (lower is better): {r_reward_score}, "
+                    f"acc (higher is better) : {acc}", args.global_rank)
         rm_model.tput_timer.update_epoch_count()
 
     save_rm_hf_format(rm_model, tokenizer, args, final=True)
