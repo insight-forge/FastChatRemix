@@ -493,9 +493,9 @@ def main():
     print_rank_0("***** Running training *****", args.global_rank)
 
     print_rank_0(f"***** Evaluating init reward *****", args.global_rank)
-    reward_score, acc = evaluation_reward(rm_model, eval_dataloader)
+    reward_score, acc, r_reward_score = evaluation_reward(rm_model, eval_dataloader)
     print_rank_0(
-        f"init chosen_last_scores (higher is better) : {reward_score}, acc (higher is better) : {acc}",
+        f"Init chosen_last_scores (higher is better) : {reward_score}, rejected_last_scores (lower is better): {r_reward_score},  acc (higher is better) : {acc}",
         args.global_rank)
     args.global_step = 0
     for epoch in range(args.num_train_epochs):
