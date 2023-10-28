@@ -31,7 +31,6 @@ from fastchat.rlhf.utils.module.lora import convert_linear_layer_to_lora, only_o
 from fastchat.model.model_adapter import get_conversation_template
 
 
-global_rank=None
 
 def parse_args():
     parser = argparse.ArgumentParser(
@@ -294,7 +293,6 @@ class RewardDataset(Dataset):
     """Dataset for training reward model."""
 
     def __init__(self, raw_data, tokenizer: transformers.PreTrainedTokenizer, model_name):
-        global global_rank
         super(RewardDataset, self).__init__()
         self.tokenizer = tokenizer
 
@@ -343,7 +341,6 @@ def make_reward_dataset(
     return train_dataset, eval_dataset
 
 def main():
-    global global_rank
     args = parse_args()
 
     if args.local_rank == -1:
@@ -354,8 +351,6 @@ def main():
         # Initializes the distributed backend which will take care of sychronizing nodes/GPUs
         # torch.distributed.init_process_group(backend='nccl')
         deepspeed.init_distributed()
-
-    global_rank = torch.distributed.get_rank()
 
     ds_config = get_train_ds_config(offload=args.offload,
                                     dtype=args.dtype,
@@ -520,9 +515,9 @@ def main():
                              args.global_step // args.gradient_accumulation_steps),
                         ])
 
-                    print_rank_0(
-                        f"step = {args.global_step // args.gradient_accumulation_steps} chosen_last_scores (higher is better) : {reward_score}, acc (higher is better) : {acc}",
-                        args.global_rank)
+                print_rank_0(
+                    f"step = {args.global_step // args.gradient_accumulation_steps} chosen_last_scores (higher is better) : {reward_score}, acc (higher is better) : {acc}",
+                    args.global_rank)
 
         print_rank_0(
             f"Epoch {epoch+1}/{args.num_train_epochs} with loss {mean_loss/(step+1)}",
