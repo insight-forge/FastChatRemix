@@ -507,6 +507,7 @@ def main():
                 reward_score, acc = evaluation_reward(rm_model, eval_dataloader)
                 rm_model.train()
                 if rm_model.monitor.enabled:
+                    print_rank_0(f"Writing log to {args.report_to}...", args.global_rank)
                     if args.global_rank == 0:
                         rm_model.monitor.write_events([
                             (f"Eval/reward_score", reward_score,
