@@ -16,11 +16,11 @@ done
 export WANDB_API_KEY="your wandb api key"
 
 nohup deepspeed --include="localhost:2,3,4,5" --master_port 29501 fastchat/rlhf/train_reward/train_rm.py \
-    --model_name_or_path "/opt/ml/model/path-to-base-model" \
+    --model_name_or_path "/path/to/base/model" \
     --transformer_name_in_causal_lm "transformer" \
     --data_path ${TRAINING_DATA} \
     --eval_data_path ${EVAL_DATA} \
-    --output_dir "/opt/ml/model/path-to-oupt" \
+    --output_dir "/path/to/output" \
     --num_train_epochs 1 \
     --per_device_train_batch_size 2 \
     --per_device_eval_batch_size 2 \
@@ -41,7 +41,7 @@ nohup deepspeed --include="localhost:2,3,4,5" --master_port 29501 fastchat/rlhf/
     --offload \
     --deepspeed \
     --report_to "wandb" \
-    --report_name "wandb group name" \
+    --report_name "wandb-group-name" \
     > fastchat/rlhf/logs/train_log.log 2>&1 &
 
     
