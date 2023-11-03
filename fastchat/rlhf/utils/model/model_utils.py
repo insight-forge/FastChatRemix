@@ -22,7 +22,7 @@ def create_hf_model(
         model_name_or_path,
         tokenizer,
         ds_config=None,
-        rlhf_training=False,
+        resume_ckpt_path=None,
         disable_dropout=False,
         trust_remote_code=False,
         use_flash_attn=None
@@ -38,7 +38,7 @@ def create_hf_model(
         dschf = HfDeepSpeedConfig(ds_config)
     else:
         dschf = None
-    if rlhf_training:
+    if resume_ckpt_path is not None:
         # the weight loading is handled by create critic model
         model = model_class.from_config(model_config, trust_remote_code=trust_remote_code)
     else:
@@ -63,7 +63,7 @@ def create_critic_model(model_name_or_path,
                         tokenizer,
                         ds_config,
                         num_padding_at_beginning=0,
-                        rlhf_training=False,
+                        resume_ckpt_path=None,
                         disable_dropout=False,
                         zero_stage=0,
                         trust_remote_code=False,
@@ -80,7 +80,7 @@ def create_critic_model(model_name_or_path,
 
     start = time.time()
     critic_model = create_hf_model(model_class, model_name_or_path, tokenizer,
-                                   ds_config, rlhf_training, disable_dropout,
+                                   ds_config, resume_ckpt_path, disable_dropout,
                                    trust_remote_code, use_flash_attn)
 
     if transformer_name_in_causal_lm and hasattr(critic_model, transformer_name_in_causal_lm):
@@ -98,12 +98,11 @@ def create_critic_model(model_name_or_path,
         tokenizer,
         num_padding_at_beginning=num_padding_at_beginning)
 
-    if rlhf_training:
+    if resume_ckpt_path is not None:
         # load critic model from checkpoint
-
-        if not os.path.isdir(model_name_or_path):
-            model_name_or_path = snapshot_download(model_name_or_path)
-        model_ckpt_path = os.path.join(model_name_or_path, 'pytorch_model.bin')
+        if not os.path.isdir(resume_ckpt_path):
+            resume_ckpt_path = snapshot_download(resume_ckpt_path)
+        model_ckpt_path = os.path.join(resume_ckpt_path, 'pytorch_model.bin')
         assert os.path.exists(
             model_ckpt_path
         ), f"Cannot find model checkpoint at {model_ckpt_path}"

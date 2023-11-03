@@ -60,6 +60,13 @@ def parse_args():
         required=True,
     )
     parser.add_argument(
+        "--resume_ckpt_path",
+        default=None,
+        type=str,
+        help=
+        "Reward param checkpoint path.",
+    )
+    parser.add_argument(
         "--transformer_name_in_causal_lm",
         type=str,
         choices=["transformer", "model"],
@@ -388,7 +395,10 @@ def main():
                                    disable_dropout=args.disable_dropout,
                                    trust_remote_code=True,
                                    transformer_name_in_causal_lm=args.transformer_name_in_causal_lm,
-                                   use_flash_attn=args.use_flash_attn)
+                                   use_flash_attn=args.use_flash_attn,
+                                   resume_ckpt_path=args.resume_ckpt_path,
+                                   zero_stage=args.zero_stage
+                                   )
     print_rank_0(f"{args.model_name_or_path} config:", args.global_rank)
     print_rank_0(rm_model.config, args.global_rank)
 
