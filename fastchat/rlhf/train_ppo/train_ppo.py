@@ -60,6 +60,16 @@ def parse_args():
         help=
         "The configuration name of the dataset to use (via the datasets library)."
     )
+    parser.add_argument("--unsup_coef",
+                        type=float,
+                        default=27.8,
+                        help='''gamma in Equation 2 from InstructGPT paper''')
+    parser.add_argument(
+        "--preprocessing_num_workers",
+        type=int,
+        default=None,
+        help="The number of processes to use for the preprocessing.",
+    )
     parser.add_argument(
         '--lazy_preprocess',
         action='store_true',
@@ -113,6 +123,10 @@ def parse_args():
         help=
         "Mini Batch size (per device) for the MiniDataset."
     )
+    parser.add_argument("--generation_batches",
+                        type=int,
+                        default=1,
+                        help="Generate x batches to go to training mode.")
     parser.add_argument(
         "--ppo_epochs",
         type=int,
@@ -200,10 +214,14 @@ def parse_args():
                         type=int,
                         default=-1,
                         help="local_rank for distributed training on gpus")
-    parser.add_argument('--disable_actor_dropout',
-                        action='store_true',
-                        help='Disable the dropout of the actor model.')
-    parser.add_argument('--disable_critic_dropout',
+    parser.add_argument(
+        "--actor_dropout",
+        type=float,
+        default=None,
+        help="If actor dropout configured, use it. "
+             "Otherwise, keep the default dropout configuration of the actor model."
+    )
+    parser.add_argument('--critic_dropout',
                         action='store_true',
                         help='Disable the dropout of the critical model.')
     parser.add_argument(
@@ -214,7 +232,11 @@ def parse_args():
         '--critic_gradient_checkpointing',
         action='store_true',
         help='Enable HF gradient checkpointing for Critic model.')
-
+    ## Actor/critic model overflow alignment
+    parser.add_argument(
+        '--align_overflow',
+        action='store_true',
+        help='Align loss scale overflow between actor and critic')
     # deepspeed features
     parser.add_argument(
         "--inference_tp_size",
@@ -286,12 +308,20 @@ def parse_args():
     parser.add_argument('--only_optimize_lora',
                         action='store_true',
                         help='Only optimize the LoRA parameters.')
+
     parser.add_argument(
-        "--lora_learning_rate",
+        "--actor_lora_learning_rate",
         type=float,
         default=5e-4,
         help=
-        "Initial LoRA learning rate (after the potential warmup period) to use."
+        "Initial actor LoRA learning rate (after the potential warmup period) to use."
+    )
+    parser.add_argument(
+        "--critic_lora_learning_rate",
+        type=float,
+        default=5e-4,
+        help=
+        "Initial critic LoRA learning rate (after the potential warmup period) to use."
     )
     parser.add_argument(
         "--enable_hybrid_engine",
@@ -299,6 +329,11 @@ def parse_args():
         help=
         "Enable hybrid engine for actor model to optimize both inference and training through DeepSpeed."
     )
+    ## Mixed Precision ZeRO++
+    parser.add_argument(
+        '--enable_mixed_precision_lora',
+        action='store_true',
+        help='Enable Mixed Precision ZeRO++ for training and generation.')
     ## logging
     parser.add_argument('--report_to',
                         type=str,
@@ -314,7 +349,29 @@ def parse_args():
                         type=str,
                         default='step3_tensorboard_logs',
                         help='Report tensorboard dir name or group name of wandb')
-
+    ## debug
+    parser.add_argument('--print_answers',
+                        action='store_true',
+                        help='Print prompt and answers during training')
+    parser.add_argument(
+        "--print_answers_interval",
+        type=int,
+        default=10,
+        help="If --print_answers enabled, controls the printing interval.")
+    ## Testing
+    parser.add_argument(
+        '--enable_test_mode',
+        action='store_true',
+        help=
+        'Enable a testing mode that terminates training based on args.test_stop_step'
+    )
+    parser.add_argument(
+        "--test_stop_step",
+        type=int,
+        default=0,
+        help=
+        "Training non-overflow step at which to terminate training during testing."
+    )
 
     parser = deepspeed.add_config_arguments(parser)
     args = parser.parse_args()
@@ -418,6 +475,8 @@ def make_prompt_dataloader(
         use_fast=False,
         trust_remote_code=True
     )
+    tokenizer.eos_token_id = tokenizer.eod_id
+    tokenizer.pad_token_id = tokenizer.eos_token_id
     # json format :
     # [{
     # "id":"1",
@@ -462,10 +521,13 @@ def make_prompt_dataloader(
                                          collate_fn=prompt_data_collator,
                                          sampler=prompt_train_sampler,
                                          batch_size=args.per_device_generation_batch_size)
-    prompt_eval_dataloader = DataLoader(prompt_eval_dataset,
-                                         collate_fn=prompt_data_collator,
-                                         sampler=prompt_eval_sampler,
-                                         batch_size=args.per_device_generation_batch_size)
+    prompt_eval_dataloader = None
+    if args.eval_data_path:
+        prompt_eval_dataloader = DataLoader(prompt_eval_dataset,
+                                             collate_fn=prompt_data_collator,
+                                             sampler=prompt_eval_sampler,
+                                             batch_size=args.per_device_generation_batch_size)
+
 
     return prompt_train_dataloader, prompt_eval_dataloader
 
@@ -564,8 +626,8 @@ def main():
     )
     tokenizer.eos_token_id = tokenizer.eod_id
     tokenizer.pad_token_id = tokenizer.eos_token_id
-    print("***** tokenizer ******")
-    print(tokenizer)
+    print_rank_0("***** tokenizer ******", args.global_rank)
+    print_rank_0(tokenizer, args.global_rank)
 
     # DataLoaders creation:
     prompt_train_dataloader, _ = make_prompt_dataloader(args=args)
@@ -610,7 +672,6 @@ def main():
 
     # Train!
     print_rank_0("***** Running training *****", args.global_rank)
-
     non_overflow_step_count = 0
     global_step = 0
     for epoch in range(args.num_train_epochs):
@@ -627,7 +688,7 @@ def main():
             # if length > args.max_prompt_seq_len:
             #     prompts = prompts[:, length - args.max_prompt_seq_len:]
             #     raise ValueError("Prompt length is too long")
-
+            print_rank_0(f"generate experience ...", args.global_rank)
             out = trainer.generate_experience(batch_prompt['prompt'],
                                               batch_prompt['prompt_att_mask'],
                                               step)
@@ -643,6 +704,7 @@ def main():
             exp_dataset = exp_mini_dataset.add(out)
 
             if exp_dataset is not None:
+                print_rank_0(f"generate experience done", args.global_rank)
                 inner_iter = 0
                 actor_loss_sum, critic_loss_sum, unsup_loss_sum = 0, 0, 0
                 average_reward = 0
@@ -692,7 +754,7 @@ def main():
                     "-------------------------------------------------------------------------------------",
                     args.global_rank)
 
-                if args.enable_tensorboard and torch.distributed.get_rank(
+                if args.report_to and torch.distributed.get_rank(
                 ) == 0:
                     gloabal_gen_step = epoch * min_dataloader_size + step
                     summary_events = []

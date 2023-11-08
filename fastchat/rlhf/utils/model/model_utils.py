@@ -15,7 +15,15 @@ from transformers.deepspeed import HfDeepSpeedConfig
 
 from .reward_model import RewardModel
 from ..utils import load_state_dict_into_model
+from fastchat.rlhf.utils.utils import print_rank_0
 
+def configure_dropout(model_config, dropout):
+    if dropout is not None:
+        for key in ('dropout', 'attention_dropout', 'hidden_dropout',
+                    'activation_dropout'):
+            if hasattr(model_config, key):
+                print(f"Setting model_config.{key} to {dropout}")
+                setattr(model_config, key, dropout)
 
 def create_hf_model(
         model_class,
@@ -23,15 +31,15 @@ def create_hf_model(
         tokenizer,
         ds_config=None,
         not_load_model_weights=False,
-        disable_dropout=False,
+        dropout=None,
         trust_remote_code=False,
         use_flash_attn=None
 ):
+    global_rank = torch.distributed.get_rank()
     model_config = AutoConfig.from_pretrained(model_name_or_path, trust_remote_code=trust_remote_code)
     if use_flash_attn is not None:
         model_config.use_flash_attn = use_flash_attn  # for qwen
-    if disable_dropout:
-        model_config.dropout = 0.0
+    configure_dropout(model_config, dropout)
     # Note: dschf is defined in function scope to avoid global effects
     # https://huggingface.co/docs/transformers/main_classes/deepspeed#nontrainer-deepspeed-integration
     if ds_config is not None and ds_config["zero_optimization"]["stage"] == 3:
@@ -40,10 +48,10 @@ def create_hf_model(
         dschf = None
     if not_load_model_weights:
         # the weight loading is handled by create critic model
-        print("load from_config")
+        print_rank_0("load from_config", global_rank)
         model = model_class.from_config(model_config, trust_remote_code=trust_remote_code)
     else:
-        print("load from_pretrained")
+        print_rank_0("load from_pretrained" , global_rank)
         model = model_class.from_pretrained(
             model_name_or_path,
             from_tf=bool(".ckpt" in model_name_or_path),
@@ -66,7 +74,7 @@ def create_critic_model(model_name_or_path,
                         ds_config,
                         num_padding_at_beginning=0,
                         resume_from_reward_ckpt=False, # if True: resume reward training or load critic model. else: load from pretrained
-                        disable_dropout=False,
+                        dropout=None,
                         zero_stage=0,
                         trust_remote_code=False,
                         transformer_name_in_causal_lm=None,
@@ -82,7 +90,7 @@ def create_critic_model(model_name_or_path,
 
     start = time.time()
     critic_model = create_hf_model(model_class, model_name_or_path, tokenizer,
-                                   ds_config, resume_from_reward_ckpt, disable_dropout,
+                                   ds_config, resume_from_reward_ckpt, dropout,
                                    trust_remote_code, use_flash_attn)
 
     if transformer_name_in_causal_lm and hasattr(critic_model, transformer_name_in_causal_lm):

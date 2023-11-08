@@ -175,9 +175,13 @@ def parse_args():
         '--gradient_checkpointing',
         action='store_true',
         help='Enable HF gradient checkpointing for Actor model.')
-    parser.add_argument('--disable_dropout',
-                        action='store_true',
-                        help='Disable the dropout of the model.')
+    parser.add_argument(
+        "--dropout",
+        type=float,
+        default=None,
+        help="If critic dropout configured, use it. "
+             "Otherwise, keep the default dropout configuration of the critic model."
+    )
     # deepspeed features
     parser.add_argument('--offload',
                         action='store_true',
@@ -393,7 +397,7 @@ def main():
                                    tokenizer,
                                    ds_config,
                                    args.num_padding_at_beginning,
-                                   disable_dropout=args.disable_dropout,
+                                   dropout=args.dropout,
                                    transformer_name_in_causal_lm=args.transformer_name_in_causal_lm,
                                    resume_from_reward_ckpt=args.resume_from_reward_ckpt,
                                    zero_stage=args.zero_stage,

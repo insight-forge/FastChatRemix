@@ -81,7 +81,7 @@ class DeepSpeedPPOTrainer():
             kwargs = dict(do_sample=False)
         else:
             kwargs = dict()
-
+        print("actor_model.module.generate")
         with torch.no_grad():
             seq = self.actor_model.module.generate(
                 prompts,
@@ -90,7 +90,7 @@ class DeepSpeedPPOTrainer():
                 pad_token_id=self.tokenizer.pad_token_id,
                 synced_gpus=self.z3_enabled,
                 **kwargs)
-
+        print("actor_model.module.generate done")
         # Filter out seq with no answers (or very short). This happens when users directly use the pre-training ckpt without supervised finetuning
         # NOTE: this will causes each GPU has different number of examples
         batch_size = seq.shape[0]
@@ -99,12 +99,12 @@ class DeepSpeedPPOTrainer():
         ans = seq[:, prompt_length:]
         valid_ans_len = (ans != self.tokenizer.pad_token_id).sum(dim=-1)
 
-        if self.args.print_answers:
+        if self.args.print_answers and (step % self.args.print_answers_interval == 0):
             print(
-                f"--- prompt --> step={step}, rank={torch.distributed.get_rank()}, {self.tokenizer.batch_decode(prompts, skip_special_tokens=True)}"
+                f"--- prompt --> step={step}, rank={torch.distributed.get_rank()}, {self.tokenizer.batch_decode(prompts)}"
             )
             print(
-                f"--- ans    --> step={step}, rank={torch.distributed.get_rank()}, {self.tokenizer.batch_decode(ans, skip_special_tokens=True)}"
+                f"--- ans    --> step={step}, rank={torch.distributed.get_rank()}, {self.tokenizer.batch_decode(ans)}"
             )
 
         out_seq = []

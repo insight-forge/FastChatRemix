@@ -92,7 +92,7 @@ class DeepSpeedRLHFEngine():
             model_name_or_path=actor_model_name_or_path,
             tokenizer=self.tokenizer,
             ds_config=ds_config,
-            disable_dropout=self.args.disable_actor_dropout,
+            dropout=self.args.actor_dropout,
             trust_remote_code=True,
             use_flash_attn=self.args.use_flash_attn
         )
@@ -117,10 +117,11 @@ class DeepSpeedRLHFEngine():
                               betas=(0.9, 0.95))
 
         # LR Scheduler
+        num_warmup_steps = self.num_total_iters * self.args.warmup_ratio
         lr_scheduler = get_scheduler(
             name=self.args.lr_scheduler_type,
             optimizer=optim,
-            num_warmup_steps=self.args.num_warmup_steps,
+            num_warmup_steps=num_warmup_steps,
             num_training_steps=self.num_total_iters,
         )
 
@@ -237,9 +238,9 @@ class DeepSpeedRLHFEngine():
             ds_config=ds_eval_config,
             num_padding_at_beginning=self.args.num_padding_at_beginning,
             resume_from_reward_ckpt=True,
-            disable_dropout=self.args.disable_critic_dropout,
+            dropout=self.args.critic_dropout,
             zero_stage=self.args.critic_zero_stage,
-            transformer_name_in_causal_lm=self.transformer_name_in_causal_lm,
+            transformer_name_in_causal_lm=self.args.transformer_name_in_causal_lm,
             use_flash_attn=self.args.use_flash_attn,
             trust_remote_code=True,
         )
@@ -264,10 +265,11 @@ class DeepSpeedRLHFEngine():
                               betas=(0.9, 0.95))
 
         # LR Scheduler
+        num_warmup_steps = self.num_total_iters * self.args.warmup_ratio
         lr_scheduler = get_scheduler(
             name=self.args.lr_scheduler_type,
             optimizer=optim,
-            num_warmup_steps=self.args.num_warmup_steps,
+            num_warmup_steps=num_warmup_steps,
             num_training_steps=self.num_total_iters,
         )
 
@@ -313,9 +315,9 @@ class DeepSpeedRLHFEngine():
             ds_config=ds_eval_config,
             num_padding_at_beginning=self.args.num_padding_at_beginning,
             resume_from_reward_ckpt=True,
-            disable_dropout=self.args.disable_critic_dropout,
+            dropout=self.args.critic_dropout,
             zero_stage=zero_stage,
-            transformer_name_in_causal_lm=self.transformer_name_in_causal_lm,
+            transformer_name_in_causal_lm=self.args.transformer_name_in_causal_lm,
             use_flash_attn=self.args.use_flash_attn,
             trust_remote_code=True
         )
