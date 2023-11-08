@@ -25,7 +25,7 @@ sys.path.append(
     os.path.abspath(os.path.join(os.path.dirname(__file__), os.path.pardir)))
 from fastchat.rlhf.utils.model.model_utils import create_critic_model
 from fastchat.rlhf.utils.data.data_utils import DataCollatorReward
-from fastchat.rlhf.utils.utils import print_rank_0, to_device, save_rm_hf_format, set_random_seed, get_all_reduce_mean, get_optimizer_grouped_parameters, save_zero_three_model, load_hf_tokenizer
+from fastchat.rlhf.utils.utils import print_rank_0, to_device, save_rm_hf_format, set_random_seed, get_all_reduce_mean, get_optimizer_grouped_parameters
 from fastchat.rlhf.utils.ds_utils import get_train_ds_config
 from fastchat.rlhf.utils.module.lora import convert_linear_layer_to_lora, only_optimize_lora_parameters, make_model_gradient_checkpointing_compatible
 from fastchat.model.model_adapter import get_conversation_template
@@ -52,6 +52,8 @@ def parse_args():
         '--lazy_preprocess',
         action='store_true',
         help='Enable lazy preprocess')
+
+    # load model
     parser.add_argument(
         "--model_name_or_path",
         type=str,
@@ -60,11 +62,10 @@ def parse_args():
         required=True,
     )
     parser.add_argument(
-        "--resume_ckpt_path",
-        default=None,
-        type=str,
+        "--resume_from_reward_ckpt",
+        action='store_true',
         help=
-        "Reward param checkpoint path.",
+        "load critic model or resume reward model from checkpoint .",
     )
     parser.add_argument(
         "--transformer_name_in_causal_lm",
@@ -393,11 +394,11 @@ def main():
                                    ds_config,
                                    args.num_padding_at_beginning,
                                    disable_dropout=args.disable_dropout,
-                                   trust_remote_code=True,
                                    transformer_name_in_causal_lm=args.transformer_name_in_causal_lm,
+                                   resume_from_reward_ckpt=args.resume_from_reward_ckpt,
+                                   zero_stage=args.zero_stage,
                                    use_flash_attn=args.use_flash_attn,
-                                   resume_ckpt_path=args.resume_ckpt_path,
-                                   zero_stage=args.zero_stage
+                                   trust_remote_code=True
                                    )
     print_rank_0(f"{args.model_name_or_path} config:", args.global_rank)
     print_rank_0(rm_model.config, args.global_rank)
@@ -459,7 +460,7 @@ def main():
         except:
             pass
 
-        if model.monitor.enabled and model.global_rank == 0:
+        if model.monitor.enabled and args.global_rank == 0:
             print_rank_0("Writing evaluation results...")
             summary_events = [
                 (f"Eval/Samples/acc", acc, model.global_samples),
@@ -551,9 +552,7 @@ def main():
                     f"acc (higher is better) : {acc}", args.global_rank)
         rm_model.tput_timer.update_epoch_count()
 
-    save_rm_hf_format(rm_model, tokenizer, args, final=True)
-
-
+    save_rm_hf_format(rm_model, tokenizer, args, sub_folder='final')
 
 if __name__ == "__main__":
     main()

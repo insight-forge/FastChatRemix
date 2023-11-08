@@ -73,8 +73,7 @@ class DeepSpeedRLHFEngine():
             release_inference_cache=self.args.release_inference_cache,
             pin_parameters=(not self.args.unpin_actor_parameters),
             tp_gather_partition_size=self.args.tp_gather_partition_size,
-            max_out_tokens=self.args.max_prompt_seq_len +
-            self.args.max_answer_seq_len,
+            max_out_tokens=self.args.max_prompt_seq_len + self.args.max_answer_seq_len,
             enable_mixed_precision_lora=self.args.enable_mixed_precision_lora,
             report_to=self.args.report_to,
             report_project=self.args.report_project,
@@ -237,7 +236,7 @@ class DeepSpeedRLHFEngine():
             tokenizer=self.tokenizer,
             ds_config=ds_eval_config,
             num_padding_at_beginning=self.args.num_padding_at_beginning,
-            rlhf_training=True,
+            resume_from_reward_ckpt=True,
             disable_dropout=self.args.disable_critic_dropout,
             zero_stage=self.args.critic_zero_stage,
             transformer_name_in_causal_lm=self.transformer_name_in_causal_lm,
@@ -308,24 +307,12 @@ class DeepSpeedRLHFEngine():
             ) * self.args.gradient_accumulation_steps
 
         # Model
-        # critic_model = create_critic_model(
-        #             model_name_or_path=critic_model_name_or_path,
-        #             tokenizer=self.tokenizer,
-        #             ds_config=ds_eval_config,
-        #             num_padding_at_beginning=self.args.num_padding_at_beginning,
-        #             rlhf_training=True,
-        #             disable_dropout=self.args.disable_critic_dropout,
-        #             zero_stage=self.args.critic_zero_stage,
-        #             transformer_name_in_causal_lm=self.transformer_name_in_causal_lm,
-        #             use_flash_attn=self.args.use_flash_attn,
-        #             trust_remote_code=True,
-        #         )
         reward_model = create_critic_model(
             model_name_or_path=critic_model_name_or_path,
             tokenizer=self.tokenizer,
             ds_config=ds_eval_config,
             num_padding_at_beginning=self.args.num_padding_at_beginning,
-            rlhf_training=True,
+            resume_from_reward_ckpt=True,
             disable_dropout=self.args.disable_critic_dropout,
             zero_stage=zero_stage,
             transformer_name_in_causal_lm=self.transformer_name_in_causal_lm,

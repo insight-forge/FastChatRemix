@@ -11,7 +11,7 @@ from typing import Dict
 from itertools import chain
 
 import torch
-from torch.utils.data import Dataset, DataLoader, RandomSampler, SequentialSampler
+from torch.utils.data import Dataset, DataLoader, RandomSampler
 from torch.utils.data.distributed import DistributedSampler
 
 import transformers
@@ -21,18 +21,16 @@ from transformers import (
 )
 
 import deepspeed
-from deepspeed.ops.adam import DeepSpeedCPUAdam, FusedAdam
 from deepspeed.accelerator import get_accelerator
-from deepspeed.monitor.monitor import MonitorMaster
 
 from fastchat.rlhf.utils.data.data_utils import DataCollatorRLHF, MiniDataset
-from fastchat.rlhf.utils.utils import print_rank_0, to_device, save_rm_hf_format, set_random_seed, get_all_reduce_mean, moving_average
+from fastchat.rlhf.utils.utils import print_rank_0, to_device, set_random_seed, get_all_reduce_mean, moving_average, save_ppo_model_hf_format
 from fastchat.rlhf.utils.perf import print_throughput_step3
 from fastchat.model.model_adapter import get_conversation_template
 from rlhf_engine import DeepSpeedRLHFEngine
 from ppo_trainer import DeepSpeedPPOTrainer, DeepSpeedPPOTrainerUnsupervised
 from datasets import load_dataset
-
+from transformers.models.llama import LlamaForCausalLM
 
 def parse_args():
     parser = argparse.ArgumentParser(
@@ -40,13 +38,13 @@ def parse_args():
         "Finetune a transformers model on a causal language modeling task")
     parser.add_argument('--data_path',
                         nargs='*',
-                        default=['Dahoas/rm-static'],
+                        required=True,
                         help='Path to the training dataset. Accepted format:'
                         '1) a single data path, 2) multiple datasets in the'
                         'form: dataset1-path dataset2-path ...')
     parser.add_argument('--eval_data_path',
                         nargs='*',
-                        default=['Dahoas/rm-static'],
+                        default=None,
                         help='Path to the evaluation dataset. Accepted format:'
                         '1) a single data path, 2) multiple datasets in the'
                         'form: dataset1-path dataset2-path ...')
@@ -67,7 +65,14 @@ def parse_args():
         action='store_true',
         help='Enable lazy preprocess')
     parser.add_argument(
-        "--model_name_or_path",
+        "--actor_model_name_or_path",
+        type=str,
+        help=
+        "Path to pretrained model or model identifier from huggingface.co/models.",
+        required=True,
+    )
+    parser.add_argument(
+        "--critic_model_name_or_path",
         type=str,
         help=
         "Path to pretrained model or model identifier from huggingface.co/models.",
@@ -106,7 +111,7 @@ def parse_args():
         type=int,
         default=16,
         help=
-        "Mini Batch size (per device) for the training dataloader and training purpose."
+        "Mini Batch size (per device) for the MiniDataset."
     )
     parser.add_argument(
         "--ppo_epochs",
@@ -329,7 +334,8 @@ def parse_args():
 def preprocess(
     sources,
     tokenizer: transformers.PreTrainedTokenizer,
-    model_path: str = "vicuna"
+    model_path: str = "vicuna",
+    max_prompt_seq_len: int = 1024,
 ):
     conv = get_conversation_template(model_path)
     roles = {
@@ -339,34 +345,33 @@ def preprocess(
         "assistant": conv.roles[1],
     }
 
-    instructions, rejects = [], []
+    prompt_dataset = []
     for source in sources:
         conv.messages = []
         for i, conversations in enumerate(source["conversations"]):
             conv.append_message(roles[conversations["from"].lower()], conversations["value"])
         conv.append_message(conv.roles[1], None)
-        instructions.append(conv.get_prompt())
+        prompt_token = tokenizer(
+            conv.get_prompt(),
+            return_tensors="pt",
+            padding="max_length",
+            max_length=max_prompt_seq_len,
+            truncation=True,
+        )
+        prompt_dataset.append([prompt_token["input_ids"].squeeze(0),
+                               prompt_token["attention_mask"].squeeze(0)])
+
+    return prompt_dataset
 
 
-    instructions = tokenizer(
-        instructions,
-        return_tensors="pt",
-        padding="max_length",
-        max_length=tokenizer.model_max_length,
-        truncation=True,
-    )
-
-    return instructions["input_ids"], instructions["attention_mask"], tokenizer.pad_token_id
-
-
-class LazyRewardDataset(Dataset):
+class LazyPromptDataset(Dataset):
     """Dataset for training reward model."""
-
-    def __init__(self, raw_data, tokenizer: transformers.PreTrainedTokenizer, model_name):
-        super(LazyRewardDataset, self).__init__()
+    def __init__(self, raw_data, tokenizer: transformers.PreTrainedTokenizer, model_name, max_prompt_seq_len):
+        super(LazyPromptDataset, self).__init__()
         self.tokenizer = tokenizer
         self.model_path = model_name
         self.tokenizer = tokenizer
+        self.max_prompt_seq_len = max_prompt_seq_len
         self.raw_data = raw_data
         self.cached_data_dict = {}
 
@@ -377,40 +382,42 @@ class LazyRewardDataset(Dataset):
         if i in self.cached_data_dict:
             return self.cached_data_dict[i]
 
-        ret = preprocess([self.raw_data[i]], self.tokenizer, self.model_path)
-        ret = [_[0:1] for _ in ret]
+        ret = preprocess([self.raw_data[i]], self.tokenizer, self.model_path, self.max_prompt_seq_len)[0]
+        # ret = [_[0:1] for _ in ret]
         self.cached_data_dict[i] = ret
-
         return ret
 
-class RewardDataset(Dataset):
+class PromptDataset(Dataset):
     """Dataset for training reward model."""
-
-    def __init__(self, raw_data, tokenizer: transformers.PreTrainedTokenizer, model_name):
-        super(RewardDataset, self).__init__()
-        self.tokenizer = tokenizer
-
+    def __init__(self, raw_data, tokenizer: transformers.PreTrainedTokenizer, model_name, max_prompt_seq_len):
+        super(PromptDataset, self).__init__()
         self.tokenizer = tokenizer
         self.raw_data = raw_data
-        self.data = preprocess(self.raw_data, self.tokenizer, model_name)
-
+        self.data = preprocess(self.raw_data, tokenizer, model_name, max_prompt_seq_len)
 
     def __len__(self):
         return len(self.raw_data)
 
     def __getitem__(self, i) -> Dict[str, torch.Tensor]:
-        return [_[i:i+1] for _ in self.data]
-
+        return self.data[i]
 
 
 def make_prompt_dataloader(
-        tokenizer: transformers.PreTrainedTokenizer,
         args
 ):
     dataset_cls = (
-        LazyRewardDataset if args.lazy_preprocess else RewardDataset
+        LazyPromptDataset if args.lazy_preprocess else PromptDataset
     )
     print_rank_0("Loading data...", args.global_rank)
+    tokenizer = transformers.AutoTokenizer.from_pretrained(
+        args.actor_model_name_or_path,
+        cache_dir=args.cache_dir,
+        # model_max_length=args.max_prompt_seq_len,
+        padding_side="left", # prompt left padding for batch generate exp
+        truncation_side='left',
+        use_fast=False,
+        trust_remote_code=True
+    )
     # json format :
     # [{
     # "id":"1",
@@ -421,14 +428,22 @@ def make_prompt_dataloader(
     train_json = []
     for path in args.data_path:
         train_json.extend(json.load(open(path, "r")))
-    prompt_train_dataset = dataset_cls(train_json, tokenizer=tokenizer, model_name=args.model_name_or_path)
+    prompt_train_dataset = dataset_cls(
+        train_json,
+        tokenizer=tokenizer,
+        model_name=args.actor_model_name_or_path,
+        max_prompt_seq_len=args.max_prompt_seq_len)
 
     if args.eval_data_path:
         eval_json = []
         for path in args.eval_data_path:
             eval_json.extend(json.load(open(path, "r")))
         # eval_json = json.load(open(args.eval_data_path, "r"))
-        prompt_eval_dataset = dataset_cls(eval_json, tokenizer=tokenizer, model_name=args.model_name_or_path)
+        prompt_eval_dataset = dataset_cls(
+            eval_json,
+            tokenizer=tokenizer,
+            model_name=args.actor_model_name_or_path,
+            max_prompt_seq_len=args.max_prompt_seq_len)
     else:
         prompt_eval_dataset = None
 
@@ -446,11 +461,11 @@ def make_prompt_dataloader(
     prompt_train_dataloader = DataLoader(prompt_train_dataset,
                                          collate_fn=prompt_data_collator,
                                          sampler=prompt_train_sampler,
-                                         batch_size=args.per_device_train_batch_size)
+                                         batch_size=args.per_device_generation_batch_size)
     prompt_eval_dataloader = DataLoader(prompt_eval_dataset,
                                          collate_fn=prompt_data_collator,
                                          sampler=prompt_eval_sampler,
-                                         batch_size=args.per_device_train_batch_size)
+                                         batch_size=args.per_device_generation_batch_size)
 
     return prompt_train_dataloader, prompt_eval_dataloader
 
@@ -543,18 +558,17 @@ def main():
     torch.distributed.barrier()
 
     tokenizer = transformers.AutoTokenizer.from_pretrained(
-        args.model_name_or_path,
+        args.actor_model_name_or_path,
         cache_dir=args.cache_dir,
-        model_max_length=args.max_seq_len,
-        padding_side="right",
-        use_fast=False,
         trust_remote_code=True
     )
     tokenizer.eos_token_id = tokenizer.eod_id
     tokenizer.pad_token_id = tokenizer.eos_token_id
+    print("***** tokenizer ******")
+    print(tokenizer)
 
     # DataLoaders creation:
-    prompt_train_dataloader, prompt_eval_dataloader = make_prompt_dataloader(tokenizer=tokenizer, args=args)
+    prompt_train_dataloader, _ = make_prompt_dataloader(args=args)
     if unsupervised_training_enabled:
         unsupervised_train_dataloader = make_unsupervised_dataloader(args, tokenizer)
     else:
@@ -598,7 +612,7 @@ def main():
     print_rank_0("***** Running training *****", args.global_rank)
 
     non_overflow_step_count = 0
-
+    global_step = 0
     for epoch in range(args.num_train_epochs):
         print_rank_0(
             f"Beginning of Epoch {epoch + 1}/{args.num_train_epochs}, Total Generation Batches {min_dataloader_size}",
@@ -639,6 +653,7 @@ def main():
                 for ppo_ep in range(args.ppo_epochs):
                     for i, (exp_data, unsup_data) in enumerate(
                             zip(exp_dataset, unsup_dataset)):
+                        global_step += 1
                         actor_loss, critic_loss = trainer.train_rlhf(exp_data)
                         actor_loss_sum += actor_loss.item()
                         critic_loss_sum += critic_loss.item()
@@ -711,6 +726,9 @@ def main():
 
         if args.enable_test_mode:
             break
+
+    print_rank_0('saving model ...')
+    save_ppo_model_hf_format(rlhf_engine, tokenizer, args, sub_folder='final')
 
 if __name__ == "__main__":
     main()

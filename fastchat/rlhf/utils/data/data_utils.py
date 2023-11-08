@@ -375,32 +375,29 @@ class DataCollatorRLHF:
 
     def __call__(self, data):
         batch = {}
-        pad_token_id = data[-1][-1]
+        # pad_token_id = data[-1][-1]
 
-        prompt = pad_sequence([f[0] for f in data],
-                              padding_value=pad_token_id,
-                              batch_first=True)
-        prompt_mask = pad_sequence([f[1] for f in data],
-                                   padding_value=0,
-                                   batch_first=True)
+        batch["prompt"] = torch.stack([f[0] for f in data])
+        batch["prompt_att_mask"] = torch.stack([f[1] for f in data])
 
         ### make sure the final ouput is a seqence of 2**?
-        length = prompt.size()[-1]
-        pad_length = self.max_token_len - length
-        if pad_length > 0:
-            batch["prompt"] = F.pad(prompt,
-                                    pad=(0, pad_length),
-                                    mode='constant',
-                                    value=pad_token_id)
-            batch["prompt_att_mask"] = F.pad(prompt_mask,
-                                             pad=(0, pad_length),
-                                             mode='constant',
-                                             value=0)
-        else:
-            batch["prompt"] = prompt
-            batch["prompt_att_mask"] = prompt_mask
-        batch["prompt"] = batch["prompt"].flip(1)
-        batch["prompt_att_mask"] = batch["prompt_att_mask"].flip(1)
+        # length = prompt.size()[-1]
+        # pad_length = self.max_token_len - length
+        # if pad_length > 0:
+        #     batch["prompt"] = F.pad(prompt,
+        #                             pad=(0, pad_length),
+        #                             mode='constant',
+        #                             value=pad_token_id)
+        #     batch["prompt_att_mask"] = F.pad(prompt_mask,
+        #                                      pad=(0, pad_length),
+        #                                      mode='constant',
+        #                                      value=0)
+        # else:
+        #     batch["prompt"] = prompt
+        #     batch["prompt_att_mask"] = prompt_mask
+        # batch["prompt"] = batch["prompt"]
+        # batch["prompt_att_mask"] = batch["prompt_att_mask"]
+
         return batch
 
 

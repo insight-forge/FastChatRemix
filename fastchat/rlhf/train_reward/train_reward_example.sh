@@ -7,7 +7,7 @@ do
     TRAINING_DATA="${TRAINING_DATA:+${TRAINING_DATA} }${ROOT_PATH}/${data}"
 done
 
-EVAL_SETS=("UltraFeedback/all_feedback_convs_eval.json")
+EVAL_SETS=("UltraFeedback/eval_data1.json")
 for data in "${EVAL_SETS[@]}";
 do
     EVAL_DATA="${EVAL_DATA:+${EVAL_DATA} }${ROOT_PATH}/${data}"
@@ -15,7 +15,7 @@ done
 
 export WANDB_API_KEY="your wandb api key"
 
-nohup deepspeed --include="localhost:2,3,4,5" --master_port 29501 fastchat/rlhf/train_reward/train_rm.py \
+nohup deepspeed --include="localhost:2,3,4,5" --master_port 29501 train_rm.py \
     --model_name_or_path "/path/to/base/model" \
     --transformer_name_in_causal_lm "transformer" \
     --data_path ${TRAINING_DATA} \
@@ -42,11 +42,7 @@ nohup deepspeed --include="localhost:2,3,4,5" --master_port 29501 fastchat/rlhf/
     --deepspeed \
     --report_to "wandb" \
     --report_name "wandb-group-name" \
-    > fastchat/rlhf/logs/train_log.log 2>&1 &
+    > logs/train_reward_log.log 2>&1 &
 
     
-    
-    # --eval_steps 50 \
-#     --model_name_or_path "/opt/ml/model/Llama-2-13b-hf" \
-# ./s5cmd sync /tmp/llama_out s3://sagemaker-spatio-models/models_output/llama_13b/$(date +%Y-%m-%d-%H-%M-%S)/
-
+    # --resume_from_reward_ckpt \

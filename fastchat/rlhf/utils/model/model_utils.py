@@ -22,7 +22,7 @@ def create_hf_model(
         model_name_or_path,
         tokenizer,
         ds_config=None,
-        resume_ckpt_path=None,
+        not_load_model_weights=False,
         disable_dropout=False,
         trust_remote_code=False,
         use_flash_attn=None
@@ -38,10 +38,12 @@ def create_hf_model(
         dschf = HfDeepSpeedConfig(ds_config)
     else:
         dschf = None
-    if resume_ckpt_path is not None:
+    if not_load_model_weights:
         # the weight loading is handled by create critic model
+        print("load from_config")
         model = model_class.from_config(model_config, trust_remote_code=trust_remote_code)
     else:
+        print("load from_pretrained")
         model = model_class.from_pretrained(
             model_name_or_path,
             from_tf=bool(".ckpt" in model_name_or_path),
@@ -63,7 +65,7 @@ def create_critic_model(model_name_or_path,
                         tokenizer,
                         ds_config,
                         num_padding_at_beginning=0,
-                        resume_ckpt_path=None,
+                        resume_from_reward_ckpt=False, # if True: resume reward training or load critic model. else: load from pretrained
                         disable_dropout=False,
                         zero_stage=0,
                         trust_remote_code=False,
@@ -80,7 +82,7 @@ def create_critic_model(model_name_or_path,
 
     start = time.time()
     critic_model = create_hf_model(model_class, model_name_or_path, tokenizer,
-                                   ds_config, resume_ckpt_path, disable_dropout,
+                                   ds_config, resume_from_reward_ckpt, disable_dropout,
                                    trust_remote_code, use_flash_attn)
 
     if transformer_name_in_causal_lm and hasattr(critic_model, transformer_name_in_causal_lm):
@@ -91,18 +93,21 @@ def create_critic_model(model_name_or_path,
 
     end = time.time()
     if torch.distributed.get_rank() == 0:
-        print(f"> Creating model from_config took {end - start} seconds")
+        if resume_from_reward_ckpt:
+            print(f"> Creating model from_config took {end - start} seconds")
+        else:
+            print(f"> Creating model from_pretrained took {end - start} seconds")
 
     critic_model = RewardModel(
         critic_model,
         tokenizer,
         num_padding_at_beginning=num_padding_at_beginning)
 
-    if resume_ckpt_path is not None:
-        # load critic model from checkpoint
-        if not os.path.isdir(resume_ckpt_path):
-            resume_ckpt_path = snapshot_download(resume_ckpt_path)
-        model_ckpt_path = os.path.join(resume_ckpt_path, 'pytorch_model.bin')
+    if resume_from_reward_ckpt:
+        # load critic model from checkpoint or resume training reward model
+        if not os.path.isdir(model_name_or_path):
+            model_name_or_path = snapshot_download(model_name_or_path)
+        model_ckpt_path = os.path.join(model_name_or_path, 'pytorch_model.bin')
         assert os.path.exists(
             model_ckpt_path
         ), f"Cannot find model checkpoint at {model_ckpt_path}"

@@ -85,26 +85,20 @@ def load_hf_tokenizer(model_name_or_path, fast_tokenizer=True):
     return tokenizer
 
 
-def save_rm_hf_format(rm_model, tokenizer, args, final=False):
-    print_rank_0(f'global_step {args.global_step}, saving model ...', args.global_rank)
-    checkpoint_prefix = 'checkpoint-step'
+def save_rm_hf_format(rm_model, tokenizer, args, sub_folder="", checkpoint_prefix='checkpoint-step'):
+    global_rank = torch.distributed.get_rank()
+    print_rank_0(f'global_step={args.global_step}, saving model ...', global_rank)
+    if not sub_folder:
+        global_step_str = str(args.global_step)
+        global_step_str = '0' * (5 - len(global_step_str)) + global_step_str
+        # checkpoint_dir = os.path.join(output_dir, f'{checkpoint_prefix}-{global_step_str}')
+        sub_folder = f'{checkpoint_prefix}-{global_step_str}'
+
     if args.lora_dim > 0:
         rm_model = convert_lora_to_linear_layer(rm_model)
-    global_step_str = str(args.global_step)
-    global_step_str = '0' * (5 - len(global_step_str)) + global_step_str
-    checkpoint_dir = os.path.join(args.output_dir, f'{checkpoint_prefix}-{global_step_str}')
-    if final:
-        checkpoint_dir = os.path.join(args.output_dir, f'final')
-    if args.global_rank == 0:
-        save_hf_format(rm_model, tokenizer, checkpoint_dir)
-    if args.zero_stage == 3:
-        # for zero stage 3, each gpu only has a part of the model, so we need to save the model on each gpu by using DS-Engine
-        save_zero_three_model(rm_model,
-                              args.global_rank,
-                              checkpoint_dir,
-                              zero_stage=args.zero_stage)
+    save_hf_format(rm_model, tokenizer, args.output_dir, global_rank, args.zero_stage, sub_folder=sub_folder)
 
-    if not final and args.save_total_limit and args.save_total_limit > 0:
+    if args.save_total_limit and args.save_total_limit > 0:
         ordering_and_checkpoint_path = []
         glob_checkpoints = [str(x) for x in Path(args.output_dir).glob(f"{checkpoint_prefix}-*") if os.path.isdir(x)]
         for path in glob_checkpoints:
@@ -118,26 +112,79 @@ def save_rm_hf_format(rm_model, tokenizer, args, final=False):
         number_of_checkpoints_to_delete = max(0, len(checkpoints_sorted) - save_total_limit)
         checkpoints_to_be_deleted = checkpoints_sorted[:number_of_checkpoints_to_delete]
         for checkpoint in checkpoints_to_be_deleted:
-            print_rank_0(f"Deleting older checkpoint [{checkpoint}] due to args.save_total_limit", args.global_rank)
+            print_rank_0(f"Deleting older checkpoint [{checkpoint}] due to args.save_total_limit", global_rank)
             shutil.rmtree(checkpoint, ignore_errors=True)
 
+def save_ppo_model_hf_format(rlhf_engine, tokenizer, args, sub_folder="", checkpoint_prefix='checkpoint-step'):
+    global_rank = torch.distributed.get_rank()
+    print_rank_0(f'global_step {args.global_step}, saving model ...', global_rank)
+    if not sub_folder:
+        global_step_str = str(args.global_step)
+        global_step_str = '0' * (5 - len(global_step_str)) + global_step_str
+        checkpoint_dir = os.path.join(args.output_dir, f'{checkpoint_prefix}-{global_step_str}')
+    else:
+        checkpoint_dir = os.path.join(args.output_dir, sub_folder)
 
-def save_hf_format(model, tokenizer, output_dir, sub_folder=""):
+    rlhf_engine.actor = convert_lora_to_linear_layer(rlhf_engine.actor)
+    rlhf_engine.critic = convert_lora_to_linear_layer(rlhf_engine.critic)
+    save_hf_format(rlhf_engine.actor, tokenizer, checkpoint_dir, global_rank, args.actor_zero_stage, sub_folder='actor')
+    save_hf_format(rlhf_engine.critic, tokenizer, checkpoint_dir, global_rank, args.critic_zero_stage, sub_folder='critic')
+    if rlhf_engine.actor_ema is not None:
+        rlhf_engine.actor_ema = convert_lora_to_linear_layer(rlhf_engine.actor_ema)
+        save_hf_format(rlhf_engine.actor_ema, tokenizer, checkpoint_dir, global_rank, args.actor_zero_stage, sub_folder='actor_ema')
+
+    if args.save_total_limit and args.save_total_limit > 0:
+        ordering_and_checkpoint_path = []
+        glob_checkpoints = [str(x) for x in Path(args.output_dir).glob(f"{checkpoint_prefix}-*") if os.path.isdir(x)]
+        for path in glob_checkpoints:
+            regex_match = re.match(f".*{checkpoint_prefix}-([0-9]+)", path)
+            if regex_match is not None and regex_match.groups() is not None:
+                ordering_and_checkpoint_path.append((int(regex_match.groups()[0]), path))
+
+        checkpoints_sorted = sorted(ordering_and_checkpoint_path)
+        checkpoints_sorted = [checkpoint[1] for checkpoint in checkpoints_sorted]
+        save_total_limit = args.save_total_limit
+        number_of_checkpoints_to_delete = max(0, len(checkpoints_sorted) - save_total_limit)
+        checkpoints_to_be_deleted = checkpoints_sorted[:number_of_checkpoints_to_delete]
+        for checkpoint in checkpoints_to_be_deleted:
+            print_rank_0(f"Deleting older checkpoint [{checkpoint}] due to args.save_total_limit", global_rank)
+            shutil.rmtree(checkpoint, ignore_errors=True)
+
+def save_hf_format(model, tokenizer, output_dir, global_rank, zero_stage=0, sub_folder=""):
     # used to save huggingface format, so we can use it for hf.from_pretrained
-    model_to_save = model.module if hasattr(model, 'module') else model
-    CONFIG_NAME = "config.json"
-    WEIGHTS_NAME = "pytorch_model.bin"
-    output_dir = os.path.join(output_dir, sub_folder)
-    os.makedirs(output_dir, exist_ok=True)
-    output_model_file = os.path.join(output_dir, WEIGHTS_NAME)
-    output_config_file = os.path.join(output_dir, CONFIG_NAME)
-    save_dict = model_to_save.state_dict()
-    for key in list(save_dict.keys()):
-        if "lora" in key:
-            del save_dict[key]
-    torch.save(save_dict, output_model_file)
-    model_to_save.config.to_json_file(output_config_file)
-    tokenizer.save_vocabulary(output_dir)
+    if global_rank == 0:
+        model_to_save = model.module if hasattr(model, 'module') else model
+        CONFIG_NAME = "config.json"
+        WEIGHTS_NAME = "pytorch_model.bin"
+        output_dir = os.path.join(output_dir, sub_folder)
+        os.makedirs(output_dir, exist_ok=True)
+        output_model_file = os.path.join(output_dir, WEIGHTS_NAME)
+        output_config_file = os.path.join(output_dir, CONFIG_NAME)
+        save_dict = model_to_save.state_dict()
+        for key in list(save_dict.keys()):
+            if "lora" in key:
+                del save_dict[key]
+        torch.save(save_dict, output_model_file)
+        if not hasattr(model_to_save.config, "auto_map"):
+            model_to_save.config.to_json_file(output_config_file)
+            tokenizer.save_vocabulary(output_dir)
+        else:  # save custom model
+            # print_rank_0("saving custom remote code...")
+            from transformers.dynamic_module_utils import custom_object_save
+            model_to_save = model_to_save.rwtranrsformer
+            tokenizer.save_pretrained(output_dir)
+            custom_object_save(model_to_save, output_dir)
+            model_to_save.config.save_pretrained(output_dir)
+            if model_to_save.can_generate():
+                model_to_save.generation_config.save_pretrained(output_dir)
+
+    if zero_stage == 3:
+        # for zero stage 3, each gpu only has a part of the model, so we need to save the model on each gpu by using DS-Engine
+        # print_rank_0("zero_stage == 3, gathering and saving model...", global_rank)
+        save_zero_three_model(model,
+                              global_rank,
+                              os.path.join(output_dir, sub_folder),
+                              zero_stage=zero_stage)
 
 
 def set_random_seed(seed):
