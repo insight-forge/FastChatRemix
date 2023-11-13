@@ -133,7 +133,7 @@ def preprocess(
             # "-2" is hardcoded for the Llama tokenizer to make the offset correct.
             instruction_len = len(tokenizer(parts[0]).input_ids) - 2
 
-            if i != 0 and not tokenizer.legacy:
+            if i != 0 and hasattr(tokenizer, "legacy") and not tokenizer.legacy:
                 # The legacy and non-legacy modes handle special tokens differently
                 instruction_len -= 1
 
@@ -141,7 +141,7 @@ def preprocess(
             target[cur_len : cur_len + instruction_len] = IGNORE_TOKEN_ID
             cur_len += turn_len
 
-            if i != 0 and not tokenizer.legacy:
+            if i != 0 and hasattr(tokenizer, "legacy") and not tokenizer.legacy:
                 # The legacy and non-legacy modes handle special tokens differently
                 cur_len -= 1
 
@@ -268,10 +268,12 @@ def train():
     model = transformers.AutoModelForCausalLM.from_pretrained(
         model_args.model_name_or_path,
         config=config,
+        trust_remote_code=True,
         cache_dir=training_args.cache_dir,
     )
     tokenizer = transformers.AutoTokenizer.from_pretrained(
         model_args.model_name_or_path,
+        trust_remote_code=True,
         cache_dir=training_args.cache_dir,
         model_max_length=training_args.model_max_length,
         padding_side="right",
