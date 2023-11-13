@@ -257,6 +257,7 @@ def train():
     config = transformers.AutoConfig.from_pretrained(
         model_args.model_name_or_path,
         cache_dir=training_args.cache_dir,
+        trust_remote_code=True
     )
     orig_ctx_len = getattr(config, "max_position_embeddings", None)
     if orig_ctx_len and training_args.model_max_length > orig_ctx_len:
