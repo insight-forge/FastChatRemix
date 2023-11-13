@@ -19,6 +19,7 @@ import json
 import math
 import pathlib
 from typing import Dict, Optional, Sequence
+import os
 
 import numpy as np
 import torch
@@ -285,6 +286,10 @@ def train():
     # Load data
     data_module = make_supervised_data_module(tokenizer=tokenizer, data_args=data_args)
 
+    rank0_print("training_args:", training_args)
+    rank0_print("model_args:", model_args)
+    rank0_print("data_args:", data_args)
+
     # Start trainner
     trainer = Trainer(
         model=model, tokenizer=tokenizer, args=training_args, **data_module
@@ -296,8 +301,11 @@ def train():
 
     # Save model
     model.config.use_cache = True
-    trainer.save_state()
-    trainer_save_model_safe(trainer)
+    # trainer.save_state()
+    # trainer_save_model_safe(trainer)
+    final_model_path = os.path.join(training_args.output_dir, "final")
+    tokenizer.save_pretrained(final_model_path)
+    trainer.save_model(final_model_path)
 
 
 if __name__ == "__main__":
