@@ -232,6 +232,12 @@ def parse_args():
         '--critic_gradient_checkpointing',
         action='store_true',
         help='Enable HF gradient checkpointing for Critic model.')
+    parser.add_argument('--stop_words',
+                        nargs='*',
+                        default=None,
+                        help='Path to the training dataset. Accepted format:'
+                             '1) a single data path, 2) multiple datasets in the'
+                             'form: dataset1-path dataset2-path ...')
     ## Actor/critic model overflow alignment
     parser.add_argument(
         '--align_overflow',
@@ -284,6 +290,11 @@ def parse_args():
         type=int,
         default=0,
         help='ZeRO optimization stage for Critic model (and reward).')
+    parser.add_argument(
+        '--ref_zero_stage',
+        type=int,
+        default=None,
+        help='ZeRO optimization stage for reference model, default eq actor_zero_stage')
     ## Make EMA as an optional feature
     parser.add_argument('--enable_ema',
                         action='store_true',
@@ -673,7 +684,7 @@ def main():
     # Train!
     print_rank_0("***** Running training *****", args.global_rank)
     non_overflow_step_count = 0
-    global_step = 0
+    args.global_step = 0
     for epoch in range(args.num_train_epochs):
         print_rank_0(
             f"Beginning of Epoch {epoch + 1}/{args.num_train_epochs}, Total Generation Batches {min_dataloader_size}",
@@ -688,7 +699,7 @@ def main():
             # if length > args.max_prompt_seq_len:
             #     prompts = prompts[:, length - args.max_prompt_seq_len:]
             #     raise ValueError("Prompt length is too long")
-            print_rank_0(f"generate experience ...", args.global_rank)
+            # print_rank_0(f"generate experience ...", args.global_rank)
             out = trainer.generate_experience(batch_prompt['prompt'],
                                               batch_prompt['prompt_att_mask'],
                                               step)
@@ -715,7 +726,7 @@ def main():
                 for ppo_ep in range(args.ppo_epochs):
                     for i, (exp_data, unsup_data) in enumerate(
                             zip(exp_dataset, unsup_dataset)):
-                        global_step += 1
+                        args.global_step += 1
                         actor_loss, critic_loss = trainer.train_rlhf(exp_data)
                         actor_loss_sum += actor_loss.item()
                         critic_loss_sum += critic_loss.item()
@@ -758,19 +769,19 @@ def main():
                 ) == 0:
                     gloabal_gen_step = epoch * min_dataloader_size + step
                     summary_events = []
-                    summary_events.append(('Train/reward',
+                    summary_events.append(('Train/gen_steps/reward',
                                       average_reward / inner_iter,
                                       gloabal_gen_step))
-                    summary_events.append(('Train/actor_loss',
+                    summary_events.append(('Train/gen_steps/actor_loss',
                                       actor_loss,
                                       gloabal_gen_step))
-                    summary_events.append(('Train/actor_loss_sum',
+                    summary_events.append(('Train/gen_steps/actor_loss_sum',
                                       actor_loss_sum,
                                       gloabal_gen_step))
-                    summary_events.append(('Train/critic_loss',
+                    summary_events.append(('Train/gen_steps/critic_loss',
                                       critic_loss,
                                       gloabal_gen_step))
-                    summary_events.append(('Train/critic_loss_sum',
+                    summary_events.append(('Train/gen_steps/critic_loss_sum',
                                       critic_loss_sum,
                                       gloabal_gen_step))
                     monitor.write_events(summary_events)
@@ -789,7 +800,7 @@ def main():
         if args.enable_test_mode:
             break
 
-    print_rank_0('saving model ...')
+    print_rank_0('saving model ...', args.global_rank)
     save_ppo_model_hf_format(rlhf_engine, tokenizer, args, sub_folder='final')
 
 if __name__ == "__main__":

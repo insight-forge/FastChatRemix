@@ -60,7 +60,7 @@ class DeepSpeedPPOTrainer():
         self.end_of_conversation_token_id = self.tokenizer(
             args.end_of_conversation_token)['input_ids'][-1]
         self.z3_enabled = args.actor_zero_stage == 3
-
+        self.stop_words_ids = self.stop_words_ids = self.tokenizer(args.stop_words)['input_ids'] if args.stop_words is not None else None
         # Those value can be changed
         self.kl_ctl = 0.1
         self.clip_reward_value = 5
@@ -71,7 +71,6 @@ class DeepSpeedPPOTrainer():
         self.generate_time = 0.0
 
     def _generate_sequence(self, prompts, mask, step):
-
         max_min_length = self.max_answer_seq_len + prompts.shape[1]
 
         # This has been added due to a probability/nan error that happens after
@@ -81,16 +80,17 @@ class DeepSpeedPPOTrainer():
             kwargs = dict(do_sample=False)
         else:
             kwargs = dict()
-        print("actor_model.module.generate")
+        # print("actor_model.module.generate, batch size: ", prompts.shape[0])
         with torch.no_grad():
             seq = self.actor_model.module.generate(
                 prompts,
                 attention_mask=mask,
-                max_length=max_min_length,
+                max_new_tokens=self.max_answer_seq_len,
                 pad_token_id=self.tokenizer.pad_token_id,
                 synced_gpus=self.z3_enabled,
+                stop_words_ids=self.stop_words_ids,
                 **kwargs)
-        print("actor_model.module.generate done")
+        # print("actor_model.module.generate done")
         # Filter out seq with no answers (or very short). This happens when users directly use the pre-training ckpt without supervised finetuning
         # NOTE: this will causes each GPU has different number of examples
         batch_size = seq.shape[0]
@@ -101,10 +101,10 @@ class DeepSpeedPPOTrainer():
 
         if self.args.print_answers and (step % self.args.print_answers_interval == 0):
             print(
-                f"--- prompt --> step={step}, rank={torch.distributed.get_rank()}, {self.tokenizer.batch_decode(prompts)}"
+                f"--- prompt --> step={step}, rank={torch.distributed.get_rank()}, {self.tokenizer.batch_decode(prompts, skip_special_tokens=True)}"
             )
             print(
-                f"--- ans    --> step={step}, rank={torch.distributed.get_rank()}, {self.tokenizer.batch_decode(ans)}"
+                f"--- ans    --> step={step}, rank={torch.distributed.get_rank()}, {self.tokenizer.batch_decode(ans, skip_special_tokens=True)}"
             )
 
         out_seq = []
@@ -197,7 +197,7 @@ class DeepSpeedPPOTrainer():
             advantages, returns = self.get_advantages_and_returns(
                 old_values, old_rewards, start)
 
-        ### process the new outputs
+        ### process the new outputsz
         batch = {'input_ids': seq, "attention_mask": attention_mask}
         actor_prob = self.actor_model(**batch, use_cache=False).logits
         actor_log_prob = gather_log_probs(actor_prob[:, :-1, :], seq[:, 1:])
@@ -218,10 +218,12 @@ class DeepSpeedPPOTrainer():
         self.critic_model.backward(critic_loss)
 
         if self.args.align_overflow:
-            actor_overflow = self.actor_model.optimizer.check_overflow(
-                external=True)
-            critic_overflow = self.critic_model.optimizer.check_overflow(
-                external=True)
+            # actor_overflow = self.actor_model.optimizer.check_overflow(
+            #     external=True)
+            # critic_overflow = self.critic_model.optimizer.check_overflow(
+            #     external=True)
+            actor_overflow = self.actor_model.optimizer.overflow
+            critic_overflow = self.critic_model.optimizer.overflow
 
             rank = torch.distributed.get_rank()
             if actor_overflow and not critic_overflow:

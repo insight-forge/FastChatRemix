@@ -152,11 +152,11 @@ def save_ppo_model_hf_format(rlhf_engine, tokenizer, args, sub_folder="", checkp
 
 def save_hf_format(model, tokenizer, output_dir, global_rank, zero_stage=0, sub_folder=""):
     # used to save huggingface format, so we can use it for hf.from_pretrained
+    output_dir = os.path.join(output_dir, sub_folder)
     if global_rank == 0:
         model_to_save = model.module if hasattr(model, 'module') else model
         CONFIG_NAME = "config.json"
         WEIGHTS_NAME = "pytorch_model.bin"
-        output_dir = os.path.join(output_dir, sub_folder)
         os.makedirs(output_dir, exist_ok=True)
         output_model_file = os.path.join(output_dir, WEIGHTS_NAME)
         output_config_file = os.path.join(output_dir, CONFIG_NAME)
@@ -171,7 +171,9 @@ def save_hf_format(model, tokenizer, output_dir, global_rank, zero_stage=0, sub_
         else:  # save custom model
             # print_rank_0("saving custom remote code...")
             from transformers.dynamic_module_utils import custom_object_save
-            model_to_save = model_to_save.rwtranrsformer
+            if hasattr(model_to_save, "rwtranrsformer"):
+                # save rm
+                model_to_save = model_to_save.rwtranrsformer
             tokenizer.save_pretrained(output_dir)
             custom_object_save(model_to_save, output_dir)
             model_to_save.config.save_pretrained(output_dir)
@@ -183,7 +185,7 @@ def save_hf_format(model, tokenizer, output_dir, global_rank, zero_stage=0, sub_
         # print_rank_0("zero_stage == 3, gathering and saving model...", global_rank)
         save_zero_three_model(model,
                               global_rank,
-                              os.path.join(output_dir, sub_folder),
+                              output_dir,
                               zero_stage=zero_stage)
 
 

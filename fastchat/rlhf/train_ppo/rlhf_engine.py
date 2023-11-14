@@ -139,7 +139,7 @@ class DeepSpeedRLHFEngine():
     def _init_ref(self, actor_model_name_or_path):
         stime = log_init("Ref")
         # DS Config
-        zero_stage = self.args.actor_zero_stage
+        zero_stage = self.args.actor_zero_stage if self.args.ref_zero_stage is None else self.args.ref_zero_stage
         if zero_stage != 3:
             # If actor is ZeRO-3 then we use it for everything, otherwise assume we have enough memory for ref model
             zero_stage = 0
