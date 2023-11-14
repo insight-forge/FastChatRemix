@@ -769,19 +769,19 @@ def main():
                 ) == 0:
                     gloabal_gen_step = epoch * min_dataloader_size + step
                     summary_events = []
-                    summary_events.append(('Train/gen_steps/reward',
+                    summary_events.append(('Train/reward',
                                       average_reward / inner_iter,
                                       gloabal_gen_step))
-                    summary_events.append(('Train/gen_steps/actor_loss',
+                    summary_events.append(('Train/actor_loss',
                                       actor_loss,
                                       gloabal_gen_step))
-                    summary_events.append(('Train/gen_steps/actor_loss_sum',
+                    summary_events.append(('Train/actor_loss_sum',
                                       actor_loss_sum,
                                       gloabal_gen_step))
-                    summary_events.append(('Train/gen_steps/critic_loss',
+                    summary_events.append(('Train/critic_loss',
                                       critic_loss,
                                       gloabal_gen_step))
-                    summary_events.append(('Train/gen_steps/critic_loss_sum',
+                    summary_events.append(('Train/critic_loss_sum',
                                       critic_loss_sum,
                                       gloabal_gen_step))
                     monitor.write_events(summary_events)
