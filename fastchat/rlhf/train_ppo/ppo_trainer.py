@@ -2,6 +2,8 @@
 # SPDX-License-Identifier: Apache-2.0
 
 # DeepSpeed Team
+import logging
+
 import torch
 import torch.nn.functional as F
 import sys
@@ -99,12 +101,15 @@ class DeepSpeedPPOTrainer():
         ans = seq[:, prompt_length:]
         valid_ans_len = (ans != self.tokenizer.pad_token_id).sum(dim=-1)
 
+        rank = torch.distributed.get_rank()
         if self.args.print_answers and (step % self.args.print_answers_interval == 0):
-            print(
-                f"--- prompt --> step={step}, rank={torch.distributed.get_rank()}, {self.tokenizer.batch_decode(prompts, skip_special_tokens=True)}"
+            print_rank_0(
+                f"--- prompt --> step={step}, rank={rank}, {self.tokenizer.batch_decode(prompts, skip_special_tokens=True)}",
+                rank
             )
-            print(
-                f"--- ans    --> step={step}, rank={torch.distributed.get_rank()}, {self.tokenizer.batch_decode(ans, skip_special_tokens=True)}"
+            print_rank_0(
+                f"--- ans    --> step={step}, rank={rank}, {self.tokenizer.batch_decode(ans, skip_special_tokens=True)}",
+                rank
             )
 
         out_seq = []
@@ -115,7 +120,9 @@ class DeepSpeedPPOTrainer():
             else:
                 out_seq.append(seq[i:i + 1])
         out_seq = torch.cat(out_seq, dim=0)  # concate output in the batch dim
-
+        if out_seq.shape[0] < 1:
+            out_seq = torch.fill(seq, self.tokenizer.pad_token_id)[0: 1]
+            print("--- All answers too short --- All answers of one generate batch are shorter than 1 token, fill pad_token_id!")
         return out_seq
 
     def generate_experience(self, prompts, mask, step):
