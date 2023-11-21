@@ -63,6 +63,12 @@ class DeepSpeedPPOTrainer():
             args.end_of_conversation_token)['input_ids'][-1]
         self.z3_enabled = args.actor_zero_stage == 3
         self.stop_words_ids = self.stop_words_ids = self.tokenizer(args.stop_words)['input_ids'] if args.stop_words is not None else None
+
+        # In case the generated experience is not valid (too short), we use the last valid
+        # generated experience. Alternatively, we can skip the step (on all workers).
+        # For now, use the last valid experience which is a simpler solution
+        self.last_generated_experience = None
+
         # Those value can be changed
         self.kl_ctl = 0.1
         self.clip_reward_value = 5
@@ -116,13 +122,23 @@ class DeepSpeedPPOTrainer():
         for i in range(batch_size):
             if valid_ans_len[
                     i] <= 1:  # if the answer is shorter than 1 token, drop it
+                print(
+                    f'Dropping too short generated answer: {step=}: \n'
+                    f'prompts: {self.tokenizer.batch_decode(prompts, skip_special_tokens=False)}\n'
+                    f'answers: {self.tokenizer.batch_decode(ans, skip_special_tokens=False)}'
+                )
                 continue
             else:
                 out_seq.append(seq[i:i + 1])
+        if not out_seq:
+            print(
+                f'All generated results are too short for rank={self.args.local_rank} step={step}\n'
+                f'-> prompts: {self.tokenizer.batch_decode(prompts, skip_special_tokens=False)}\n'
+                f'-> answers: {self.tokenizer.batch_decode(ans, skip_special_tokens=False)}'
+            )
+            return None
+
         out_seq = torch.cat(out_seq, dim=0)  # concate output in the batch dim
-        if out_seq.shape[0] < 1:
-            out_seq = torch.fill(seq, self.tokenizer.pad_token_id)[0: 1]
-            print("--- All answers too short --- All answers of one generate batch are shorter than 1 token, fill pad_token_id!")
         return out_seq
 
     def generate_experience(self, prompts, mask, step):
@@ -130,6 +146,12 @@ class DeepSpeedPPOTrainer():
         generate_start = time.time()
         seq = self._generate_sequence(prompts, mask, step)
         generate_end = time.time()
+        if seq is None:
+            assert self.last_generated_experience is not None, f'Invalid generated experience at {step=}'
+            prompts = self.last_generated_experience['prompts']
+            seq = self.last_generated_experience['seq']
+        else:
+            self.last_generated_experience = {'prompts': prompts, 'seq': seq}
         self.train()
 
         pad_token_id = self.tokenizer.pad_token_id
