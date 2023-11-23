@@ -254,10 +254,10 @@ def preprocess(
         for i, conversations in enumerate(source["conversations"]):
             conv.append_message(roles[conversations["from"].lower()], conversations["value"])
         conv.append_message(conv.roles[1], source["chosen"]["value"])
-        chosen.append(conv.get_prompt())
+        chosen.append(conv.get_prompt().strip())
 
         conv.update_last_message(source["rejected"]["value"])
-        rejects.append(conv.get_prompt())
+        rejects.append(conv.get_prompt().strip())
 
     chosen = tokenizer(
         chosen,
