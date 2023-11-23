@@ -213,7 +213,7 @@ class DeepSpeedPPOTrainer():
 
         old_values = values
         with torch.no_grad():
-            # clip(reward_score) - kl
+            #  -kl_i, clip(reward_score)
             old_rewards = self.compute_rewards(prompts, log_probs,
                                                ref_log_probs, reward_score,
                                                action_mask)

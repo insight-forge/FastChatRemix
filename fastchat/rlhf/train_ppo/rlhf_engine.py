@@ -75,7 +75,7 @@ class DeepSpeedRLHFEngine():
             tp_gather_partition_size=self.args.tp_gather_partition_size,
             max_out_tokens=self.args.max_prompt_seq_len + self.args.max_answer_seq_len,
             enable_mixed_precision_lora=self.args.enable_mixed_precision_lora,
-            report_to=self.args.report_to,
+            report_to=self.args.report_to if self.args.global_rank==0 else None,
             report_project=self.args.report_project,
             report_name=self.args.report_name)
 
@@ -117,7 +117,7 @@ class DeepSpeedRLHFEngine():
                               betas=(0.9, 0.95))
 
         # LR Scheduler
-        num_warmup_steps = self.num_total_iters * self.args.warmup_ratio
+        num_warmup_steps = int(self.num_total_iters * self.args.warmup_ratio)
         lr_scheduler = get_scheduler(
             name=self.args.lr_scheduler_type,
             optimizer=optim,
@@ -210,9 +210,9 @@ class DeepSpeedRLHFEngine():
             offload=self.args.offload,
             dtype=self.args.dtype,
             stage=self.args.critic_zero_stage,
-            report_to=self.args.report_to,
-            report_project=self.args.report_project,
-            report_name=self.args.report_name
+            # report_to=self.args.report_to,
+            # report_project=self.args.report_project,
+            # report_name=self.args.report_name
           )
         ds_config[
             'train_micro_batch_size_per_gpu'] = self.args.per_device_training_batch_size
@@ -265,7 +265,7 @@ class DeepSpeedRLHFEngine():
                               betas=(0.9, 0.95))
 
         # LR Scheduler
-        num_warmup_steps = self.num_total_iters * self.args.warmup_ratio
+        num_warmup_steps = int(self.num_total_iters * self.args.warmup_ratio)
         lr_scheduler = get_scheduler(
             name=self.args.lr_scheduler_type,
             optimizer=optim,

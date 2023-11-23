@@ -352,6 +352,10 @@ def parse_args():
                         help='Enable logging',
                         default=None)
     ## wandb
+    parser.add_argument('--wandb_api_key',
+                        type=str,
+                        default=None,
+                        help='wandb api key')
     parser.add_argument('--report_project',
                         type=str,
                         default='deepspeed',
@@ -397,6 +401,10 @@ def parse_args():
         raise ValueError(
             "The combination of [actor_zero_stage==2, critic_zero_stage==2, enable_hybrid_engine=True, offload=True, lora=False] is currently unsupported due to training instability!"
         )
+
+    # wandb settings
+    if args.wandb_api_key is not None:
+        os.environ['WANDB_API_KEY'] = args.wandb_api_key
     return args
 
 def preprocess(
@@ -728,14 +736,14 @@ def main():
                             zip(exp_dataset, unsup_dataset)):
                         args.global_step += 1
                         actor_loss, critic_loss = trainer.train_rlhf(exp_data)
-                        actor_loss_sum += actor_loss.item()
-                        critic_loss_sum += critic_loss.item()
+                        actor_loss_sum += actor_loss
+                        critic_loss_sum += critic_loss
                         average_reward += exp_data["rewards"].mean()
 
                         if unsupervised_training_enabled:
                             unsup_loss = trainer.train_unsupervised(
                                 unsup_data, args.unsup_coef)
-                            unsup_loss_sum += unsup_loss.item()
+                            unsup_loss_sum += unsup_loss
 
                         inner_iter += 1
                         if args.enable_ema:
@@ -750,41 +758,34 @@ def main():
                 training_time = end - training_start
                 e2e_time = training_time + trainer.generate_time * args.generation_batches  # it is an approximation, we did not include, e.g., rw forward time etc
 
+                average_reward = get_all_reduce_mean(average_reward).item() / inner_iter
+                actor_loss_avg = get_all_reduce_mean(actor_loss_sum).item() / inner_iter
+                critic_loss_avg = get_all_reduce_mean(critic_loss_sum).item() / inner_iter
+                unsup_loss_avg = get_all_reduce_mean(unsup_loss_sum).item() / inner_iter
                 print_rank_0(
-                    f'Epoch: {epoch} | Step: {step} | PPO Epoch: {ppo_ep + 1} | Actor Loss: {actor_loss_sum / inner_iter} | Critic Loss: {critic_loss_sum / inner_iter} | Unsupervised Loss: {unsup_loss_sum / inner_iter}',
+                    f'Epoch: {epoch} | Step: {step} | PPO Epoch: {ppo_ep + 1} | Actor Loss: {actor_loss_avg} | Critic Loss: {critic_loss_avg} | Unsupervised Loss: {unsup_loss_avg}',
                     args.global_rank)
                 print_throughput_step3(rlhf_engine.actor.module,
                                        rlhf_engine.critic, args, e2e_time,
                                        trainer.generate_time, training_time,
                                        args.global_rank)
-                average_reward = get_all_reduce_mean(average_reward).item()
-                print_rank_0(
-                    f"Average reward score: {average_reward / inner_iter}",
-                    args.global_rank)
+                print_rank_0(f"Average reward score: {average_reward}", args.global_rank)
                 print_rank_0(
                     "-------------------------------------------------------------------------------------",
                     args.global_rank)
-
-                if args.report_to and torch.distributed.get_rank(
-                ) == 0:
-                    gloabal_gen_step = epoch * min_dataloader_size + step
+                if args.report_to and args.global_rank == 0:
+                    global_samples = rlhf_engine.actor.global_samples
                     summary_events = []
-                    summary_events.append(('Train/reward',
-                                      average_reward / inner_iter,
-                                      gloabal_gen_step))
-                    summary_events.append(('Train/actor_loss',
-                                      actor_loss,
-                                      gloabal_gen_step))
-                    summary_events.append(('Train/actor_loss_sum',
-                                      actor_loss_sum,
-                                      gloabal_gen_step))
-                    summary_events.append(('Train/critic_loss',
-                                      critic_loss,
-                                      gloabal_gen_step))
-                    summary_events.append(('Train/critic_loss_sum',
-                                      critic_loss_sum,
-                                      gloabal_gen_step))
+                    summary_events.append(('Train/samples/reward_avg', average_reward, global_samples))
+                    summary_events.append(('Train/samples/actor_loss', actor_loss.item(), global_samples))
+                    summary_events.append(('Train/samples/actor_loss_avg', actor_loss_avg, global_samples))
+                    summary_events.append(('Train/samples/critic_loss', critic_loss.item(), global_samples))
+                    summary_events.append(('Train/samples/critic_loss_avg', critic_loss_avg, global_samples))
                     monitor.write_events(summary_events)
+
+            gloabal_gen_step = epoch * min_dataloader_size + step
+            if args.save_steps and gloabal_gen_step % args.save_steps == 0:
+                save_ppo_model_hf_format(rlhf_engine, tokenizer, args)
 
             if args.actor_gradient_checkpointing:
                 rlhf_engine.actor.gradient_checkpointing_disable()
