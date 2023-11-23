@@ -332,7 +332,8 @@ def moving_average(model, model_ema, beta=0.992, device=None, zero_stage=0):
 
 def save_zero_three_model(model_ema, global_rank, save_dir, zero_stage=0):
     zero_stage_3 = (zero_stage == 3)
-    os.makedirs(save_dir, exist_ok=True)
+    if global_rank == 0:
+        os.makedirs(save_dir, exist_ok=True)
     WEIGHTS_NAME = "pytorch_model.bin"
     output_model_file = os.path.join(save_dir, WEIGHTS_NAME)
 
