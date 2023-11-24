@@ -727,7 +727,7 @@ def main():
                 inner_iter = 0
                 actor_loss_sum, critic_loss_sum, unsup_loss_sum = 0, 0, 0
                 # average_reward = 0
-                monitor_dict = {"rewards": 0, "response_len": 0, "actor_ppl": 0, "ref_ppl": 0}
+                monitor_dict = {"rewards": 0, "kl_divergence": 0, "response_len": 0, "actor_ppl": 0, "ref_ppl": 0}
 
                 if args.actor_gradient_checkpointing:
                     rlhf_engine.actor.gradient_checkpointing_enable()
@@ -765,7 +765,7 @@ def main():
 
                 actor_loss_avg = get_all_reduce_mean(actor_loss_sum).item() / inner_iter
                 critic_loss_avg = get_all_reduce_mean(critic_loss_sum).item() / inner_iter
-                unsup_loss_avg = get_all_reduce_mean(unsup_loss_sum).item() / inner_iter
+                unsup_loss_avg = get_all_reduce_mean(unsup_loss_sum).item() / inner_iter if unsupervised_training_enabled else 0
                 print_rank_0(
                     f'Epoch: {epoch} | Step: {step} | samples: {global_samples} | PPO Epoch: {ppo_ep + 1} | Actor Loss: {actor_loss_avg} | Critic Loss: {critic_loss_avg} | Unsupervised Loss: {unsup_loss_avg}',
                     args.global_rank)
@@ -774,24 +774,24 @@ def main():
                                        trainer.generate_time, training_time,
                                        args.global_rank)
                 # average_reward = get_all_reduce_mean(average_reward).item() / inner_iter
+                summary_events = []
                 for monitor_key in monitor_dict.keys():
                     monitor_dict[monitor_key] = get_all_reduce_mean(monitor_dict[monitor_key]).item() / inner_iter
                     print_rank_0(f"Average {monitor_key}: {monitor_dict[monitor_key]}", args.global_rank)
                     if args.report_to and args.global_rank == 0:
-                        summary_events = []
-                        summary_events.append(('Train/samples/monitor_key', monitor_dict[monitor_key], global_samples))
+                        summary_events.append((f'Train/Samples/{monitor_key}', monitor_dict[monitor_key], global_samples))
                 print_rank_0(
                     "-------------------------------------------------------------------------------------",
                     args.global_rank)
                 if args.report_to and args.global_rank == 0:
-                    # summary_events.append(('Train/samples/reward_avg', average_reward, global_samples))
-                    summary_events.append(('Train/samples/actor_loss', actor_loss.item(), global_samples))
-                    summary_events.append(('Train/samples/actor_loss_avg', actor_loss_avg, global_samples))
-                    summary_events.append(('Train/samples/critic_loss', critic_loss.item(), global_samples))
-                    summary_events.append(('Train/samples/critic_loss_avg', critic_loss_avg, global_samples))
+                    # summary_events.append(('Train/Samples/reward_avg', average_reward, global_samples))
+                    summary_events.append(('Train/Samples/actor_loss', actor_loss.item(), global_samples))
+                    summary_events.append(('Train/Samples/actor_loss_avg', actor_loss_avg, global_samples))
+                    summary_events.append(('Train/Samples/critic_loss', critic_loss.item(), global_samples))
+                    summary_events.append(('Train/Samples/critic_loss_avg', critic_loss_avg, global_samples))
                     monitor.write_events(summary_events)
 
-            gloabal_gen_step = epoch * min_dataloader_size + step
+            gloabal_gen_step = epoch * min_dataloader_size + step + 1
             if args.save_steps and gloabal_gen_step % args.save_steps == 0:
                 save_ppo_model_hf_format(rlhf_engine, tokenizer, args)
 

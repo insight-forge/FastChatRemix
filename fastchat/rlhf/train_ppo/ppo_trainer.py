@@ -141,11 +141,6 @@ class DeepSpeedPPOTrainer():
         out_seq = torch.cat(out_seq, dim=0)  # concate output in the batch dim
         return out_seq
 
-    def _compute_ppl(self, logprobs, attention_mask):
-        response_mask = attention_mask[:, self.prompt_length - 1:]
-        response_logprobs = logprobs[:, self.prompt_length - 1:]
-        return (response_logprobs * response_mask).sum(-1) / response_mask.sum(-1)
-
     def generate_experience(self, prompts, mask, step):
         self.eval()
         generate_start = time.time()
@@ -178,11 +173,17 @@ class DeepSpeedPPOTrainer():
 
         logprobs = gather_log_probs(logits[:, :-1, :], seq[:, 1:])
         ref_logprobs = gather_log_probs(logits_ref[:, :-1, :], seq[:, 1:])
-        ##kl
-        response_len = (seq[:, self.prompt_length:] != self.tokenizer.pad_token_id).sum(dim=-1)
+
+        response_mask = attention_mask[:, self.prompt_length:]
+        ## response len
+        response_len = response_mask.sum(dim=-1, dtype=logits.dtype)
         ## ppl
-        actor_ppl = self._compute_ppl(logprobs, attention_mask)
-        ref_ppl = self._compute_ppl(ref_logprobs, attention_mask)
+        response_logprobs = logprobs[:, self.prompt_length - 1:]
+        ref_response_logprobs = ref_logprobs[:, self.prompt_length - 1:]
+        actor_ppl = torch.exp((response_logprobs * response_mask).sum(-1) * -1 / response_len)
+        ref_ppl = torch.exp((ref_response_logprobs * response_mask).sum(-1) * -1 / response_len)
+        ## kl
+        kl_divergence = ((response_logprobs - ref_response_logprobs) * response_mask).sum(-1) / response_len
 
         return {
             'prompts': prompts,
@@ -194,14 +195,13 @@ class DeepSpeedPPOTrainer():
             "attention_mask": attention_mask,
             "response_len": response_len,
             "actor_ppl": actor_ppl,
-            "ref_ppl": ref_ppl
+            "ref_ppl": ref_ppl,
+            "kl_divergence": kl_divergence
         }
 
     def compute_rewards(self, prompts, log_probs, ref_log_probs, reward_score,
                         action_mask):
-        kl_divergence = log_probs - ref_log_probs
-        kl_divergence_estimate = -self.kl_ctl * (kl_divergence)
-        kl_divergence = (torch.exp(log_probs) * kl_divergence).mean()  ## for logging
+        kl_divergence_estimate = -self.kl_ctl * (log_probs - ref_log_probs)
         rewards = kl_divergence_estimate
         start = prompts.shape[1] - 1
         ends = start + action_mask[:, start:].sum(1) + 1
@@ -211,7 +211,7 @@ class DeepSpeedPPOTrainer():
         for j in range(batch_size):
             rewards[j, start:ends[j]][-1] += reward_clip[j]
 
-        return rewards, kl_divergence
+        return rewards
 
     def train_rlhf(self, inputs):
         # train the rlhf mode here
@@ -227,14 +227,12 @@ class DeepSpeedPPOTrainer():
         prompt_length = prompts.size()[-1]
         start = prompt_length - 1
 
-
-
         action_mask = attention_mask[:, 1:]
 
         old_values = values
         with torch.no_grad():
             #  -kl_i, clip(reward_score)
-            old_rewards, kl_divergence = self.compute_rewards(prompts, log_probs,
+            old_rewards = self.compute_rewards(prompts, log_probs,
                                                ref_log_probs, reward_score,
                                                action_mask)
             ends = start + action_mask[:, start:].sum(1) + 1
@@ -293,12 +291,7 @@ class DeepSpeedPPOTrainer():
 
         self.critic_model.step()
         # return actor_loss, critic_loss
-        output_dict = {"actor_loss": actor_loss,
-                       "critic_loss": critic_loss,
-                       "kl_divergence": kl_divergence,
-                       "response_len_avg": response_len_avg,
-                       "actor_ppl": actor_ppl}
-        return output_dict
+        return actor_loss, critic_loss
 
     def get_overflow(self):
         actor_overflow = self.actor_model.optimizer.overflow
