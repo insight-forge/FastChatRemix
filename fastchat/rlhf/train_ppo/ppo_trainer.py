@@ -63,18 +63,18 @@ class DeepSpeedPPOTrainer():
             args.end_of_conversation_token)['input_ids'][-1]
         self.z3_enabled = args.actor_zero_stage == 3
         self.stop_words_ids = self.stop_words_ids = self.tokenizer(args.stop_words)['input_ids'] if args.stop_words is not None else None
-
+        self.monitor = rlhf_engine.actor.monitor
         # In case the generated experience is not valid (too short), we use the last valid
         # generated experience. Alternatively, we can skip the step (on all workers).
         # For now, use the last valid experience which is a simpler solution
         self.last_generated_experience = None
 
         # Those value can be changed
-        self.kl_ctl = 0.1
-        self.clip_reward_value = 5
+        self.kl_ctl = 0.2
+        self.clip_reward_value = 10
         self.cliprange = 0.2
         self.cliprange_value = 0.2
-        self.gamma = 1.0
+        self.gamma = 0.98
         self.lam = 0.95
         self.generate_time = 0.0
 
@@ -141,6 +141,11 @@ class DeepSpeedPPOTrainer():
         out_seq = torch.cat(out_seq, dim=0)  # concate output in the batch dim
         return out_seq
 
+    def _compute_ppl(self, logprobs, attention_mask):
+        response_mask = attention_mask[:, self.prompt_length - 1:]
+        response_logprobs = logprobs[:, self.prompt_length - 1:]
+        return (response_logprobs * response_mask).sum(-1) / response_mask.sum(-1)
+
     def generate_experience(self, prompts, mask, step):
         self.eval()
         generate_start = time.time()
@@ -171,21 +176,32 @@ class DeepSpeedPPOTrainer():
 
         self.generate_time = generate_end - generate_start
 
+        logprobs = gather_log_probs(logits[:, :-1, :], seq[:, 1:])
+        ref_logprobs = gather_log_probs(logits_ref[:, :-1, :], seq[:, 1:])
+        ##kl
+        response_len = (seq[:, self.prompt_length:] != self.tokenizer.pad_token_id).sum(dim=-1)
+        ## ppl
+        actor_ppl = self._compute_ppl(logprobs, attention_mask)
+        ref_ppl = self._compute_ppl(ref_logprobs, attention_mask)
+
         return {
             'prompts': prompts,
-            'logprobs': gather_log_probs(logits[:, :-1, :], seq[:, 1:]), #actor生成seq对应tokens的概率
-            'ref_logprobs': gather_log_probs(logits_ref[:, :-1, :], seq[:,
-                                                                        1:]),
+            'logprobs': logprobs, #actor生成seq对应tokens的概率
+            'ref_logprobs': ref_logprobs,
             'value': values,
             'rewards': reward_score,
             'input_ids': seq,
-            "attention_mask": attention_mask
+            "attention_mask": attention_mask,
+            "response_len": response_len,
+            "actor_ppl": actor_ppl,
+            "ref_ppl": ref_ppl
         }
 
     def compute_rewards(self, prompts, log_probs, ref_log_probs, reward_score,
                         action_mask):
-
-        kl_divergence_estimate = -self.kl_ctl * (log_probs - ref_log_probs)
+        kl_divergence = log_probs - ref_log_probs
+        kl_divergence_estimate = -self.kl_ctl * (kl_divergence)
+        kl_divergence = (torch.exp(log_probs) * kl_divergence).mean()  ## for logging
         rewards = kl_divergence_estimate
         start = prompts.shape[1] - 1
         ends = start + action_mask[:, start:].sum(1) + 1
@@ -195,7 +211,7 @@ class DeepSpeedPPOTrainer():
         for j in range(batch_size):
             rewards[j, start:ends[j]][-1] += reward_clip[j]
 
-        return rewards
+        return rewards, kl_divergence
 
     def train_rlhf(self, inputs):
         # train the rlhf mode here
@@ -208,13 +224,17 @@ class DeepSpeedPPOTrainer():
         attention_mask = inputs['attention_mask']
         seq = inputs['input_ids']
 
-        start = prompts.size()[-1] - 1
+        prompt_length = prompts.size()[-1]
+        start = prompt_length - 1
+
+
+
         action_mask = attention_mask[:, 1:]
 
         old_values = values
         with torch.no_grad():
             #  -kl_i, clip(reward_score)
-            old_rewards = self.compute_rewards(prompts, log_probs,
+            old_rewards, kl_divergence = self.compute_rewards(prompts, log_probs,
                                                ref_log_probs, reward_score,
                                                action_mask)
             ends = start + action_mask[:, start:].sum(1) + 1
@@ -272,8 +292,13 @@ class DeepSpeedPPOTrainer():
             self.actor_model.step()
 
         self.critic_model.step()
-
-        return actor_loss, critic_loss
+        # return actor_loss, critic_loss
+        output_dict = {"actor_loss": actor_loss,
+                       "critic_loss": critic_loss,
+                       "kl_divergence": kl_divergence,
+                       "response_len_avg": response_len_avg,
+                       "actor_ppl": actor_ppl}
+        return output_dict
 
     def get_overflow(self):
         actor_overflow = self.actor_model.optimizer.overflow

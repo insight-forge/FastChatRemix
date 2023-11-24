@@ -726,7 +726,8 @@ def main():
                 print_rank_0(f"generate experience done", args.global_rank)
                 inner_iter = 0
                 actor_loss_sum, critic_loss_sum, unsup_loss_sum = 0, 0, 0
-                average_reward = 0
+                # average_reward = 0
+                monitor_dict = {"rewards": 0, "response_len": 0, "actor_ppl": 0, "ref_ppl": 0}
 
                 if args.actor_gradient_checkpointing:
                     rlhf_engine.actor.gradient_checkpointing_enable()
@@ -738,7 +739,9 @@ def main():
                         actor_loss, critic_loss = trainer.train_rlhf(exp_data)
                         actor_loss_sum += actor_loss
                         critic_loss_sum += critic_loss
-                        average_reward += exp_data["rewards"].mean()
+                        # average_reward += exp_data["rewards"].mean()
+                        for monitor_key in monitor_dict.keys():
+                            monitor_dict[monitor_key] += exp_data[monitor_key].mean()
 
                         if unsupervised_training_enabled:
                             unsup_loss = trainer.train_unsupervised(
@@ -758,25 +761,30 @@ def main():
                 training_time = end - training_start
                 e2e_time = training_time + trainer.generate_time * args.generation_batches  # it is an approximation, we did not include, e.g., rw forward time etc
 
-                average_reward = get_all_reduce_mean(average_reward).item() / inner_iter
+                global_samples = rlhf_engine.actor.global_samples
+
                 actor_loss_avg = get_all_reduce_mean(actor_loss_sum).item() / inner_iter
                 critic_loss_avg = get_all_reduce_mean(critic_loss_sum).item() / inner_iter
                 unsup_loss_avg = get_all_reduce_mean(unsup_loss_sum).item() / inner_iter
                 print_rank_0(
-                    f'Epoch: {epoch} | Step: {step} | PPO Epoch: {ppo_ep + 1} | Actor Loss: {actor_loss_avg} | Critic Loss: {critic_loss_avg} | Unsupervised Loss: {unsup_loss_avg}',
+                    f'Epoch: {epoch} | Step: {step} | samples: {global_samples} | PPO Epoch: {ppo_ep + 1} | Actor Loss: {actor_loss_avg} | Critic Loss: {critic_loss_avg} | Unsupervised Loss: {unsup_loss_avg}',
                     args.global_rank)
                 print_throughput_step3(rlhf_engine.actor.module,
                                        rlhf_engine.critic, args, e2e_time,
                                        trainer.generate_time, training_time,
                                        args.global_rank)
-                print_rank_0(f"Average reward score: {average_reward}", args.global_rank)
+                # average_reward = get_all_reduce_mean(average_reward).item() / inner_iter
+                for monitor_key in monitor_dict.keys():
+                    monitor_dict[monitor_key] = get_all_reduce_mean(monitor_dict[monitor_key]).item() / inner_iter
+                    print_rank_0(f"Average {monitor_key}: {monitor_dict[monitor_key]}", args.global_rank)
+                    if args.report_to and args.global_rank == 0:
+                        summary_events = []
+                        summary_events.append(('Train/samples/monitor_key', monitor_dict[monitor_key], global_samples))
                 print_rank_0(
                     "-------------------------------------------------------------------------------------",
                     args.global_rank)
                 if args.report_to and args.global_rank == 0:
-                    global_samples = rlhf_engine.actor.global_samples
-                    summary_events = []
-                    summary_events.append(('Train/samples/reward_avg', average_reward, global_samples))
+                    # summary_events.append(('Train/samples/reward_avg', average_reward, global_samples))
                     summary_events.append(('Train/samples/actor_loss', actor_loss.item(), global_samples))
                     summary_events.append(('Train/samples/actor_loss_avg', actor_loss_avg, global_samples))
                     summary_events.append(('Train/samples/critic_loss', critic_loss.item(), global_samples))
