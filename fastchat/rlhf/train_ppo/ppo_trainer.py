@@ -71,11 +71,11 @@ class DeepSpeedPPOTrainer():
 
         # Those value can be changed
         self.kl_ctl = 0.2
-        self.clip_reward_value = 10
-        self.cliprange = 0.2
-        self.cliprange_value = 0.2
-        self.gamma = 0.98
-        self.lam = 0.95
+        self.clip_reward_value = 8
+        self.cliprange = 0.1
+        self.cliprange_value = 0.1
+        self.gamma = 0.99
+        self.lam = 0.96
         self.generate_time = 0.0
 
     def _generate_sequence(self, prompts, mask, step):
@@ -150,8 +150,10 @@ class DeepSpeedPPOTrainer():
             assert self.last_generated_experience is not None, f'Invalid generated experience at {step=}'
             prompts = self.last_generated_experience['prompts']
             seq = self.last_generated_experience['seq']
+            generate_too_short = True
         else:
             self.last_generated_experience = {'prompts': prompts, 'seq': seq}
+            generate_too_short = False
         self.train()
 
         pad_token_id = self.tokenizer.pad_token_id
@@ -177,6 +179,8 @@ class DeepSpeedPPOTrainer():
         response_mask = attention_mask[:, self.prompt_length:]
         ## response len
         response_len = response_mask.sum(dim=-1, dtype=logits.dtype)
+        if generate_too_short:
+            response_len = torch.ones_like(response_len, dtype=logits.dtype)
         ## ppl
         response_logprobs = logprobs[:, self.prompt_length - 1:]
         ref_response_logprobs = ref_logprobs[:, self.prompt_length - 1:]
