@@ -213,8 +213,16 @@ def load_model(
                 kwargs["max_memory"] = {i: max_gpu_memory for i in range(num_gpus)}
     elif device == "mps":
         kwargs = {"torch_dtype": torch.float16}
-        # Avoid bugs in mps backend by not using in-place operations.
-        replace_llama_attn_with_non_inplace_operations()
+        import transformers
+
+        version = tuple(int(v) for v in transformers.__version__.split("."))
+        if version < (4, 35, 0):
+            # NOTE: Recent transformers library seems to fix the mps issue, also
+            # it has made some changes causing compatibility issues with our
+            # original patch. So we only apply the patch for older versions.
+
+            # Avoid bugs in mps backend by not using in-place operations.
+            replace_llama_attn_with_non_inplace_operations()
     elif device == "xpu":
         kwargs = {"torch_dtype": torch.bfloat16}
         # Try to load ipex, while it looks unused, it links into torch for xpu support
@@ -865,7 +873,11 @@ class OpenChat35Adapter(BaseModelAdapter):
     """The model adapter for OpenChat 3.5 (e.g. openchat/openchat_3.5)"""
 
     def match(self, model_path: str):
-        return "openchat" in model_path.lower() and "3.5" in model_path.lower()
+        if "openchat" in model_path.lower() and "3.5" in model_path.lower():
+            return True
+        elif "starling-lm" in model_path.lower():
+            return True
+        return False
 
     def get_default_conv_template(self, model_path: str) -> Conversation:
         return get_conv_template("openchat_3.5")
@@ -1482,9 +1494,9 @@ class Hermes2Adapter(BaseModelAdapter):
     use_fast_tokenizer = False
 
     def match(self, model_path: str):
-        return (
-            "openhermes-2.5-mistral-7b"
-            or "openhermes-2-mistral-7b" in model_path.lower()
+        return any(
+            model_str in model_path.lower()
+            for model_str in ["openhermes-2.5-mistral-7b", "openhermes-2-mistral-7b"]
         )
 
     def load_model(self, model_path: str, from_pretrained_kwargs: dict):
@@ -1917,10 +1929,32 @@ class YiAdapter(BaseModelAdapter):
     """The model adapter for Yi models"""
 
     def match(self, model_path: str):
-        return "yi-34b-chat" in model_path.lower()
+        return "yi-" in model_path.lower() and "chat" in model_path.lower()
 
     def get_default_conv_template(self, model_path: str) -> Conversation:
         return get_conv_template("Yi-34b-chat")
+
+
+class DeepseekCoderAdapter(BaseModelAdapter):
+    """The model adapter for deepseek-ai's coder models"""
+
+    def match(self, model_path: str):
+        return "deepseek-coder" in model_path.lower()
+
+    def get_default_conv_template(self, model_path: str) -> Conversation:
+        return get_conv_template("deepseek-coder")
+
+
+class DeepseekChatAdapter(BaseModelAdapter):
+    """The model adapter for deepseek-ai's chat models"""
+
+    # Note: that this model will require tokenizer version >= 0.13.3 because the tokenizer class is LlamaTokenizerFast
+
+    def match(self, model_path: str):
+        return "deepseek-llm" in model_path.lower() and "chat" in model_path.lower()
+
+    def get_default_conv_template(self, model_path: str) -> Conversation:
+        return get_conv_template("deepseek-chat")
 
 
 # Note: the registration order matters.
@@ -1994,6 +2028,8 @@ register_model_adapter(LemurAdapter)
 register_model_adapter(PygmalionAdapter)
 register_model_adapter(MicrosoftOrcaAdapter)
 register_model_adapter(YiAdapter)
+register_model_adapter(DeepseekCoderAdapter)
+register_model_adapter(DeepseekChatAdapter)
 
 # After all adapters, try the default base adapter.
 register_model_adapter(BaseModelAdapter)
