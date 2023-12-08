@@ -248,6 +248,10 @@ def preprocess(
         "assistant": conv.roles[1],
     }
 
+    # todo: 临时去掉 system_message
+    conv.system_template = ''
+    conv.system_message = ''
+
     chosen, rejects = [], []
     for source in sources:
         conv.messages = []
@@ -258,6 +262,10 @@ def preprocess(
 
         conv.update_last_message(source["rejected"]["value"])
         rejects.append(conv.get_prompt().strip())
+
+    # todo: 去掉模版中的特殊token，需要不同模型需要自行适配
+    chosen = [c.replace("<|im_start|>", '').replace("<|im_end|>", '') for c in chosen]
+    rejects = [r.replace("<|im_start|>", '').replace("<|im_end|>", '') for r in rejects]
 
     chosen = tokenizer(
         chosen,

@@ -70,12 +70,12 @@ class DeepSpeedPPOTrainer():
         self.last_generated_experience = None
 
         # Those value can be changed
-        self.kl_ctl = 0.2
-        self.clip_reward_value = 8
-        self.cliprange = 0.1
-        self.cliprange_value = 0.1
-        self.gamma = 0.99
-        self.lam = 0.96
+        self.kl_ctl = 0.01
+        self.clip_reward_value = 10
+        self.cliprange = 0.2
+        self.cliprange_value = 0.2
+        self.gamma = 1
+        self.lam = 0.95
         self.generate_time = 0.0
 
     def _generate_sequence(self, prompts, mask, step):
@@ -108,7 +108,7 @@ class DeepSpeedPPOTrainer():
         valid_ans_len = (ans != self.tokenizer.pad_token_id).sum(dim=-1)
 
         rank = torch.distributed.get_rank()
-        if self.args.print_answers and (step % self.args.print_answers_interval == 0):
+        if self.args.print_answers and (step==1 or step % self.args.print_answers_interval == 0):
             print_rank_0(
                 f"--- prompt --> step={step}, rank={rank}, {self.tokenizer.batch_decode(prompts, skip_special_tokens=True)}",
                 rank
@@ -184,10 +184,14 @@ class DeepSpeedPPOTrainer():
         ## ppl
         response_logprobs = logprobs[:, self.prompt_length - 1:]
         ref_response_logprobs = ref_logprobs[:, self.prompt_length - 1:]
-        actor_ppl = torch.exp((response_logprobs * response_mask).sum(-1) * -1 / response_len)
-        ref_ppl = torch.exp((ref_response_logprobs * response_mask).sum(-1) * -1 / response_len)
-        ## kl
-        kl_divergence = ((response_logprobs - ref_response_logprobs) * response_mask).sum(-1) / response_len
+        with torch.no_grad():
+            actor_ppl = torch.exp((response_logprobs * response_mask).sum(-1) * -1 / response_len)
+            ref_ppl = torch.exp((ref_response_logprobs * response_mask).sum(-1) * -1 / response_len)
+            ## kl
+            kl_ref = ((response_logprobs - ref_response_logprobs) * response_mask).sum(-1) / response_len
+            # log_ratio = (response_logprobs - ref_response_logprobs) * response_maska
+            # ratio = torch.exp(log_ratio)
+            # kl_ref = ((ratio - 1) - log_ratio).sum(-1) / response_len
 
         return {
             'prompts': prompts,
@@ -200,7 +204,7 @@ class DeepSpeedPPOTrainer():
             "response_len": response_len,
             "actor_ppl": actor_ppl,
             "ref_ppl": ref_ppl,
-            "kl_divergence": kl_divergence
+            "kl_ref": kl_ref
         }
 
     def compute_rewards(self, prompts, log_probs, ref_log_probs, reward_score,
@@ -252,7 +256,7 @@ class DeepSpeedPPOTrainer():
         batch = {'input_ids': seq, "attention_mask": attention_mask}
         actor_prob = self.actor_model(**batch, use_cache=False).logits
         actor_log_prob = gather_log_probs(actor_prob[:, :-1, :], seq[:, 1:])
-        actor_loss = self.actor_loss_fn(actor_log_prob[:, start:],
+        actor_loss, approx_kl = self.actor_loss_fn(actor_log_prob[:, start:],
                                         log_probs[:, start:], advantages,
                                         action_mask[:, start:])
         self.actor_model.backward(actor_loss)
@@ -295,7 +299,7 @@ class DeepSpeedPPOTrainer():
 
         self.critic_model.step()
         # return actor_loss, critic_loss
-        return actor_loss, critic_loss
+        return actor_loss, critic_loss, approx_kl
 
     def get_overflow(self):
         actor_overflow = self.actor_model.optimizer.overflow
@@ -305,13 +309,17 @@ class DeepSpeedPPOTrainer():
 
     def actor_loss_fn(self, logprobs, old_logprobs, advantages, mask):
         ## policy gradient loss
+        mask_sum = mask.sum()
         log_ratio = (logprobs - old_logprobs) * mask
         ratio = torch.exp(log_ratio)
+        with torch.no_grad():
+            approx_kl = torch.sum((ratio - 1) - log_ratio) / mask_sum
+
         pg_loss1 = -advantages * ratio
         pg_loss2 = -advantages * torch.clamp(ratio, 1.0 - self.cliprange,
                                              1.0 + self.cliprange)
-        pg_loss = torch.sum(torch.max(pg_loss1, pg_loss2) * mask) / mask.sum()
-        return pg_loss
+        pg_loss = torch.sum(torch.max(pg_loss1, pg_loss2) * mask) / mask_sum
+        return pg_loss, approx_kl
 
     def critic_loss_fn(self, values, old_values, returns, mask):
         ## value loss
