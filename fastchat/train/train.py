@@ -19,6 +19,7 @@ import json
 import math
 import pathlib
 from typing import Dict, Optional, Sequence
+import os
 
 import numpy as np
 import torch
@@ -36,6 +37,15 @@ IGNORE_TOKEN_ID = LabelSmoother.ignore_index
 @dataclass
 class ModelArguments:
     model_name_or_path: Optional[str] = field(default="facebook/opt-125m")
+    trust_remote_code: bool = field(
+        default=False,
+        metadata={
+            "help": "Whether or not to allow for custom models defined on the Hub in their own modeling files"
+        },
+    )
+    padding_side: str = field(
+        default="right", metadata={"help": "The padding side in tokenizer"}
+    )
 
 
 @dataclass
@@ -133,7 +143,7 @@ def preprocess(
             # "-2" is hardcoded for the Llama tokenizer to make the offset correct.
             instruction_len = len(tokenizer(parts[0]).input_ids) - 2
 
-            if i != 0 and not tokenizer.legacy:
+            if i != 0 and hasattr(tokenizer, "legacy") and not tokenizer.legacy:
                 # The legacy and non-legacy modes handle special tokens differently
                 instruction_len -= 1
 
@@ -141,7 +151,7 @@ def preprocess(
             target[cur_len : cur_len + instruction_len] = IGNORE_TOKEN_ID
             cur_len += turn_len
 
-            if i != 0 and not tokenizer.legacy:
+            if i != 0 and hasattr(tokenizer, "legacy") and not tokenizer.legacy:
                 # The legacy and non-legacy modes handle special tokens differently
                 cur_len -= 1
 
@@ -257,6 +267,7 @@ def train():
     config = transformers.AutoConfig.from_pretrained(
         model_args.model_name_or_path,
         cache_dir=training_args.cache_dir,
+        trust_remote_code=model_args.trust_remote_code,
     )
     orig_ctx_len = getattr(config, "max_position_embeddings", None)
     if orig_ctx_len and training_args.model_max_length > orig_ctx_len:
@@ -269,18 +280,26 @@ def train():
         model_args.model_name_or_path,
         config=config,
         cache_dir=training_args.cache_dir,
+        trust_remote_code=model_args.trust_remote_code,
     )
     tokenizer = transformers.AutoTokenizer.from_pretrained(
         model_args.model_name_or_path,
         cache_dir=training_args.cache_dir,
         model_max_length=training_args.model_max_length,
-        padding_side="right",
+        padding_side=model_args.padding_side,
         use_fast=False,
+        trust_remote_code=model_args.trust_remote_code,
     )
-    tokenizer.pad_token = tokenizer.unk_token
+
+    if tokenizer.pad_token != tokenizer.unk_token:
+        tokenizer.pad_token = tokenizer.unk_token
 
     # Load data
     data_module = make_supervised_data_module(tokenizer=tokenizer, data_args=data_args)
+
+    rank0_print("training_args:", training_args)
+    rank0_print("model_args:", model_args)
+    rank0_print("data_args:", data_args)
 
     # Start trainner
     trainer = Trainer(
@@ -293,9 +312,14 @@ def train():
 
     # Save model
     model.config.use_cache = True
-    trainer.save_state()
-    trainer_save_model_safe(trainer)
-
+    # trainer.save_state()
+    # if trainer.is_deepspeed_enabled:
+    #     trainer.save_model()
+    # else:
+    #     trainer_save_model_safe(trainer)
+    final_model_path = os.path.join(training_args.output_dir, "final")
+    tokenizer.save_pretrained(final_model_path)
+    trainer.save_model(final_model_path)
 
 if __name__ == "__main__":
     train()
