@@ -98,7 +98,7 @@ def save_rm_hf_format(rm_model, tokenizer, args, sub_folder="", checkpoint_prefi
         rm_model = convert_lora_to_linear_layer(rm_model)
     save_hf_format(rm_model, tokenizer, args.output_dir, global_rank, args.zero_stage, sub_folder=sub_folder)
 
-    if args.save_total_limit and args.save_total_limit > 0:
+    if global_rank==0 and args.save_total_limit and args.save_total_limit > 0:
         ordering_and_checkpoint_path = []
         glob_checkpoints = [str(x) for x in Path(args.output_dir).glob(f"{checkpoint_prefix}-*") if os.path.isdir(x)]
         for path in glob_checkpoints:
@@ -133,7 +133,7 @@ def save_ppo_model_hf_format(rlhf_engine, tokenizer, args, sub_folder="", checkp
         rlhf_engine.actor_ema = convert_lora_to_linear_layer(rlhf_engine.actor_ema)
         save_hf_format(rlhf_engine.actor_ema, tokenizer, checkpoint_dir, global_rank, args.actor_zero_stage, sub_folder='actor_ema')
 
-    if args.save_total_limit and args.save_total_limit > 0:
+    if global_rank==0 and args.save_total_limit and args.save_total_limit > 0:
         ordering_and_checkpoint_path = []
         glob_checkpoints = [str(x) for x in Path(args.output_dir).glob(f"{checkpoint_prefix}-*") if os.path.isdir(x)]
         for path in glob_checkpoints:
