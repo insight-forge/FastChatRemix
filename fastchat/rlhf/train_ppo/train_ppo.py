@@ -718,7 +718,7 @@ def main():
             out = trainer.generate_experience(batch_prompt['prompt'],
                                               batch_prompt['prompt_att_mask'],
                                               step+1)
-
+            args.global_step += 1
             training_start = time.time()
             if batch_unsupervised is not None:
                 batch_unsupervised = to_device(batch_unsupervised, device)
@@ -743,7 +743,6 @@ def main():
                 for ppo_ep in range(args.ppo_epochs):
                     for i, (exp_data, unsup_data) in enumerate(
                             zip(exp_dataset, unsup_dataset)):
-                        args.global_step += 1
                         actor_loss, critic_loss, approx_kl = trainer.train_rlhf(exp_data)
                         actor_loss_sum += actor_loss
                         critic_loss_sum += critic_loss
@@ -809,8 +808,7 @@ def main():
                     summary_events.append(('Train/Samples/approx_kl', approx_kl_avg, global_samples))
                     monitor.write_events(summary_events)
 
-            gloabal_gen_step = epoch * min_dataloader_size + step + 1
-            if args.save_steps and gloabal_gen_step % args.save_steps == 0:
+            if args.save_steps and args.global_step % (args.save_steps * args.generation_batches) == 0:
                 save_ppo_model_hf_format(rlhf_engine, tokenizer, args)
 
             if args.actor_gradient_checkpointing:
