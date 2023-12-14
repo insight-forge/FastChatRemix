@@ -70,8 +70,8 @@ class DeepSpeedPPOTrainer():
         self.last_generated_experience = None
 
         # Those value can be changed
-        self.kl_ctl = 0.01
-        self.clip_reward_value = 10
+        self.kl_ctl = 0.05
+        self.clip_reward_value = 12
         self.cliprange = 0.2
         self.cliprange_value = 0.2
         self.gamma = 1
@@ -110,11 +110,11 @@ class DeepSpeedPPOTrainer():
         rank = torch.distributed.get_rank()
         if self.args.print_answers and (step==1 or step % self.args.print_answers_interval == 0):
             print_rank_0(
-                f"--- prompt --> step={step}, rank={rank}, {self.tokenizer.batch_decode(prompts, skip_special_tokens=True)}",
+                f"--- prompt --> step={step}, rank={rank}, {[_.replace(self.tokenizer.pad_token, '') for _ in self.tokenizer.batch_decode(prompts, skip_special_tokens=False)]}",
                 rank
             )
             print_rank_0(
-                f"--- ans    --> step={step}, rank={rank}, {self.tokenizer.batch_decode(ans, skip_special_tokens=True)}",
+                f"--- ans    --> step={step}, rank={rank}, {self.tokenizer.batch_decode(ans, skip_special_tokens=False)}",
                 rank
             )
 
