@@ -89,7 +89,7 @@ def save_rm_hf_format(rm_model, tokenizer, args, sub_folder="", checkpoint_prefi
     global_rank = torch.distributed.get_rank()
     print_rank_0(f'global_step={args.global_step}, saving model ...', global_rank)
     if not sub_folder:
-        step_str = str(args.global_step // (args.save_steps * args.gradient_accumulation_steps))
+        step_str = str(args.global_step // args.gradient_accumulation_steps)
         step_str = '0' * (5 - len(step_str)) + step_str
         # checkpoint_dir = os.path.join(output_dir, f'{checkpoint_prefix}-{step_str}')
         sub_folder = f'{checkpoint_prefix}-{step_str}'
@@ -119,7 +119,7 @@ def save_ppo_model_hf_format(rlhf_engine, tokenizer, args, sub_folder="", checkp
     global_rank = torch.distributed.get_rank()
     print_rank_0(f'global_step {args.global_step}, saving model ...', global_rank)
     if not sub_folder:
-        step_str = str(args.global_step // (args.save_steps * args.generation_batches))
+        step_str = str(args.global_step // args.generation_batches)
         step_str = '0' * (5 - len(step_str)) + step_str
         checkpoint_dir = os.path.join(args.output_dir, f'{checkpoint_prefix}-{step_str}')
     else:
