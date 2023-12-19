@@ -54,7 +54,10 @@ peft_share_base_weights = (
 ANTHROPIC_MODEL_LIST = (
     "claude-1",
     "claude-2",
+    "claude-2.0",
+    "claude-2.1",
     "claude-instant-1",
+    "claude-instant-1.2",
 )
 
 
@@ -1488,6 +1491,16 @@ class OpenOrcaAdapter(BaseModelAdapter):
         return get_conv_template("open-orca")
 
 
+class DolphinAdapter(OpenOrcaAdapter):
+    """Model adapter for ehartford/dolphin-2.2.1-mistral-7b"""
+
+    def match(self, model_path: str):
+        return "dolphin" in model_path.lower() and "mistral" in model_path.lower()
+
+    def get_default_conv_template(self, model_path: str) -> Conversation:
+        return get_conv_template("dolphin-2.2.1-mistral-7b")
+
+
 class Hermes2Adapter(BaseModelAdapter):
     """Model adapter for teknium/OpenHermes-2.5-Mistral-7B and teknium/OpenHermes-2-Mistral-7B models"""
 
@@ -1913,6 +1926,16 @@ class PygmalionAdapter(BaseModelAdapter):
         return get_conv_template("metharme")
 
 
+class XdanAdapter(BaseModelAdapter):
+    """The model adapter for xDAN-AI (e.g. xDAN-AI/xDAN-L1-Chat-v0.1)"""
+
+    def match(self, model_path: str):
+        return "xdan" in model_path.lower()
+
+    def get_default_conv_template(self, model_path: str) -> Conversation:
+        return get_conv_template("xdan-v1")
+
+
 class MicrosoftOrcaAdapter(BaseModelAdapter):
     """The model adapter for Microsoft/Orca-2 series of models (e.g. Microsoft/Orca-2-7b, Microsoft/Orca-2-13b)"""
 
@@ -1955,6 +1978,26 @@ class DeepseekChatAdapter(BaseModelAdapter):
 
     def get_default_conv_template(self, model_path: str) -> Conversation:
         return get_conv_template("deepseek-chat")
+
+
+class MetaMathAdapter(BaseModelAdapter):
+    """The model adapter for MetaMath models"""
+
+    def match(self, model_path: str):
+        return "metamath" in model_path.lower()
+
+    def get_default_conv_template(self, model_path: str) -> Conversation:
+        return get_conv_template("metamath")
+
+
+class SolarAdapter(BaseModelAdapter):
+    """The model adapter for upstage/SOLAR-10.7B-Instruct-v1.0"""
+
+    def match(self, model_path: str):
+        return "solar-" in model_path.lower() and "instruct" in model_path.lower()
+
+    def get_default_conv_template(self, model_path: str) -> Conversation:
+        return get_conv_template("solar")
 
 
 # Note: the registration order matters.
@@ -2007,6 +2050,7 @@ register_model_adapter(StarChatAdapter)
 register_model_adapter(Llama2Adapter)
 register_model_adapter(CuteGPTAdapter)
 register_model_adapter(OpenOrcaAdapter)
+register_model_adapter(DolphinAdapter)
 register_model_adapter(Hermes2Adapter)
 register_model_adapter(MistralAdapter)
 register_model_adapter(WizardCoderAdapter)
@@ -2027,9 +2071,12 @@ register_model_adapter(XwinLMAdapter)
 register_model_adapter(LemurAdapter)
 register_model_adapter(PygmalionAdapter)
 register_model_adapter(MicrosoftOrcaAdapter)
+register_model_adapter(XdanAdapter)
 register_model_adapter(YiAdapter)
 register_model_adapter(DeepseekCoderAdapter)
 register_model_adapter(DeepseekChatAdapter)
+register_model_adapter(MetaMathAdapter)
+register_model_adapter(SolarAdapter)
 
 # After all adapters, try the default base adapter.
 register_model_adapter(BaseModelAdapter)
