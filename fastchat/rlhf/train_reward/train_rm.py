@@ -263,10 +263,10 @@ def preprocess(
         conv.update_last_message(source["rejected"]["value"])
         rejects.append(conv.get_prompt().strip())
 
-    # todo: 去掉模版中的特殊token，需要不同模型需要自行适配
-    if "qwen" in conv.name:
-        chosen = [c.replace("<|im_start|>", '').replace("<|im_end|>", '') for c in chosen]
-        rejects = [r.replace("<|im_start|>", '').replace("<|im_end|>", '') for r in rejects]
+    # # todo: 去掉模版中的特殊token，需要不同模型需要自行适配
+    # if "qwen" in conv.name:
+    #     chosen = [c.replace("<|im_start|>", '').replace("<|im_end|>", '') for c in chosen]
+    #     rejects = [r.replace("<|im_start|>", '').replace("<|im_end|>", '') for r in rejects]
 
     chosen = tokenizer(
         chosen,

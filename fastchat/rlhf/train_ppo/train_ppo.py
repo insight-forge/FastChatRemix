@@ -431,9 +431,9 @@ def preprocess(
             conv.append_message(roles[conversations["from"].lower()], conversations["value"])
         conv.append_message(conv.roles[1], None)
         prompt = conv.get_prompt()
-        # todo: 临时去掉模版中的特殊token，需根据不同的模版自行适配
-        if "qwen" in conv.name:
-            prompt = prompt.replace("<|im_start|>", '').replace("<|im_end|>", '')
+        # # todo: 临时去掉模版中的特殊token，需根据不同的模版自行适配
+        # if "qwen" in conv.name:
+        #     prompt = prompt.replace("<|im_start|>", '').replace("<|im_end|>", '')
         prompt_token = tokenizer(
             prompt,
             return_tensors="pt",
