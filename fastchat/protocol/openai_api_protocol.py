@@ -70,15 +70,14 @@ class ChatCompletionRequest(BaseModel):
     user: Optional[str] = None
     functions: Optional[List[Dict[str, Any]]] = None
 
+class FunctionCall(BaseModel):
+    name: str
+    arguments: str
 
 class ChatMessage(BaseModel):
     role: str
-    content: str
-
-class ChatMessageWithFunction(BaseModel):
-    role: str
-    function_call: Dict[str, Any]
-    content: Optional[str] = None
+    content: Optional[str]= None
+    function_call: Optional[FunctionCall] = None
 
 class ChatCompletionResponseChoice(BaseModel):
     index: int

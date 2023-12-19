@@ -38,7 +38,7 @@ from fastchat.protocol.openai_api_protocol import (
     ChatCompletionResponseStreamChoice,
     ChatCompletionStreamResponse,
     ChatMessage,
-    ChatMessageWithFunction,
+    FunctionCall,
     ChatCompletionResponseChoice,
     CompletionRequest,
     CompletionResponse,
@@ -306,7 +306,7 @@ async def get_gen_params(
                 raise ValueError(f"Unknown role: {msg_role}")
         if functions:
             system_message = conv.system_message
-            system_message += "\n\n" + get_function_system(conv["name"], functions)
+            system_message += "\n\n" + get_function_system(conv.name, functions)
             conv.set_system_message(system_message)
 
         # Add a blank message for the assistant.
@@ -374,20 +374,27 @@ async def get_conv(model_name: str, worker_addr: str):
 def get_function_call(text):
     if "<functioncall>" in text:
         text = text[len("<functioncall>"):]
+        logger.info(f"function call:  {text}")
     else:
         return None
 
     try:
-        text = json.loads(text)
-        return text
-    except:
-        logger.debug(f"json.loads error: {text}")
+        function_call = json.loads(text)
+        if "name" in function_call:
+            return FunctionCall(name=function_call["name"], arguments=json.dumps(function_call.get("arguments", "{}"), ensure_ascii=False))
+        else:
+            return None
+    except Exception as e:
+        logger.info(f"json.loads error: {text}\n{e}")
 
     try:
-        text = eval(text)
-        return text
-    except:
-        logger.debug(f"eval error: {text}")
+        function_call = eval(text)
+        if "name" in function_call:
+            return FunctionCall(name=function_call["name"], arguments=json.dumps(function_call.get("arguments", "{}"), ensure_ascii=False))
+        else:
+            return None
+    except Exception as e:
+        logger.info(f"eval error: {text}\n{e}")
         return None
 
 @app.get("/v1/models", dependencies=[Depends(check_api_key)])
@@ -465,9 +472,8 @@ async def create_chat_completion(request: ChatCompletionRequest):
 
         function_call = get_function_call(content["text"])
         if function_call is not None:
-            chat_message = ChatMessageWithFunction(role="assistant", function_call=function_call)
-        else:
-            chat_message = ChatMessage(role="assistant", content=content["text"])
+            content["text"] = None
+        chat_message = ChatMessage(role="assistant", content=content["text"], function_call=function_call)
         choices.append(
             ChatCompletionResponseChoice(
                 index=i,
