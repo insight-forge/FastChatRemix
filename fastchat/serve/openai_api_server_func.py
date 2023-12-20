@@ -374,7 +374,7 @@ async def get_conv(model_name: str, worker_addr: str):
 def get_function_call(text):
     if "<functioncall>" in text:
         text = text[len("<functioncall>"):]
-        logger.info(f"function call:  {text}")
+        logger.debug(f"function call:  {text}")
     else:
         return None
 
@@ -385,7 +385,7 @@ def get_function_call(text):
         else:
             return None
     except Exception as e:
-        logger.info(f"json.loads error: {text}\n{e}")
+        logger.debug(f"json.loads error: {text}\n{e}")
 
     try:
         function_call = eval(text)
@@ -394,7 +394,7 @@ def get_function_call(text):
         else:
             return None
     except Exception as e:
-        logger.info(f"eval error: {text}\n{e}")
+        logger.debug(f"eval error: {text}\n{e}")
         return None
 
 @app.get("/v1/models", dependencies=[Depends(check_api_key)])
