@@ -68,12 +68,16 @@ class ChatCompletionRequest(BaseModel):
     presence_penalty: Optional[float] = 0.0
     frequency_penalty: Optional[float] = 0.0
     user: Optional[str] = None
+    functions: Optional[List[Dict[str, Any]]] = None
 
+class FunctionCall(BaseModel):
+    name: str
+    arguments: str
 
 class ChatMessage(BaseModel):
     role: str
-    content: str
-
+    content: Optional[str]= None
+    function_call: Optional[FunctionCall] = None
 
 class ChatCompletionResponseChoice(BaseModel):
     index: int
