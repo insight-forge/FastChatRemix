@@ -164,6 +164,10 @@ def parse_args():
                         type=int,
                         default=1,
                         help="Total number of training epochs to perform.")
+    parser.add_argument("--epoch",
+                        type=int,
+                        default=0,
+                        help="resume epoch")
     parser.add_argument(
         "--gradient_accumulation_steps",
         type=int,
@@ -539,7 +543,8 @@ def make_prompt_dataloader(
         if args.eval_data_path:
             prompt_eval_sampler = RandomSampler(prompt_eval_dataset)
     else:
-        prompt_train_sampler = DistributedSampler(prompt_train_dataset)
+        prompt_train_sampler = DistributedSampler(prompt_train_dataset, seed=args.seed)
+        prompt_train_sampler.set_epoch(args.epoch)
         if args.eval_data_path:
             prompt_eval_sampler = DistributedSampler(prompt_eval_dataset)
 
@@ -610,7 +615,8 @@ def make_unsupervised_dataloader(args, tokenizer):
     if args.local_rank == -1:
         unsupervised_train_sampler = RandomSampler(unsupervised_train_dataset)
     else:
-        unsupervised_train_sampler = DistributedSampler(unsupervised_train_dataset)
+        unsupervised_train_sampler = DistributedSampler(unsupervised_train_dataset, seed=args.seed)
+        unsupervised_train_sampler.set_epoch(args.epoch)
 
     unsupervised_train_dataloader = DataLoader(
         unsupervised_train_dataset,
@@ -700,7 +706,7 @@ def main():
     print_rank_0("***** Running training *****", args.global_rank)
     non_overflow_step_count = 0
     args.global_step = 0
-    for epoch in range(args.num_train_epochs):
+    for epoch in range(args.epoch, args.num_train_epochs):
         print_rank_0(
             f"Beginning of Epoch {epoch + 1}/{args.num_train_epochs}, Total Generation Batches {min_dataloader_size}",
             args.global_rank)

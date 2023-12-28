@@ -70,7 +70,7 @@ class DeepSpeedPPOTrainer():
         self.last_generated_experience = None
 
         # Those value can be changed
-        self.kl_ctl = 0.05
+        self.kl_ctl = 0.02
         self.clip_reward_value = 12
         self.cliprange = 0.2
         self.cliprange_value = 0.2
