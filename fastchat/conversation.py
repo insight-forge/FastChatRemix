@@ -30,6 +30,7 @@ class SeparatorStyle(IntEnum):
     FALCON_CHAT = auto()
     CHATGLM3 = auto()
     DEEPSEEK_CHAT = auto()
+    METAMATH = auto()
 
 
 @dataclasses.dataclass
@@ -223,7 +224,17 @@ class Conversation:
                     ret += role + ": " + message + self.sep
                 else:
                     ret += role + ":"
-
+            return ret
+        elif self.sep_style == SeparatorStyle.METAMATH:
+            ret = "" if system_prompt == "" else system_prompt + self.sep
+            for i, (role, message) in enumerate(self.messages):
+                # For MetaMath, sep2 is used to prefix the message.
+                starting_sep = ":\n" if i % 2 == 0 else ": " + self.sep2
+                ending_sep = self.sep if i % 2 == 0 else ""
+                if message:
+                    ret += role + starting_sep + message + ending_sep
+                else:
+                    ret += role + starting_sep
             return ret
         elif self.sep_style == SeparatorStyle.DEEPSEEK_CHAT:
             seps = [self.sep, self.sep2]
@@ -265,7 +276,10 @@ class Conversation:
 
     def to_openai_api_messages(self):
         """Convert the conversation to OpenAI chat completion format."""
-        ret = [{"role": "system", "content": self.system_message}]
+        if self.system_message == "":
+            ret = []
+        else:
+            ret = [{"role": "system", "content": self.system_message}]
 
         for i, (_, msg) in enumerate(self.messages[self.offset :]):
             if i % 2 == 0:
@@ -668,6 +682,17 @@ register_conv_template(
     )
 )
 
+# Perplexity AI template
+register_conv_template(
+    Conversation(
+        name="pplxai",
+        system_message="Be precise and concise.",
+        roles=("user", "assistant"),
+        sep_style=None,
+        sep=None,
+    )
+)
+
 # Claude default template
 register_conv_template(
     Conversation(
@@ -675,6 +700,20 @@ register_conv_template(
         roles=("Human", "Assistant"),
         sep_style=SeparatorStyle.ADD_COLON_SINGLE,
         sep="\n\n",
+    )
+)
+
+# MetaMath default template
+# reference: https://github.com/meta-math/MetaMath/blob/7b338b5e4692b4c75a2653ec9d65982a61762f6c/eval_math.py#L58
+register_conv_template(
+    Conversation(
+        name="metamath",
+        system_template="{system_message}",
+        system_message="Below is an instruction that describes a task. Write a response that appropriately completes the request.",
+        roles=("### Instruction", "### Response"),
+        sep_style=SeparatorStyle.METAMATH,
+        sep="\n\n",
+        sep2="Let's think step by step.",
     )
 )
 
@@ -967,6 +1006,18 @@ register_conv_template(
 
 register_conv_template(
     Conversation(
+        name="chinese-alpaca2",
+        system_template="[INST] <<SYS>>\n{system_message}\n<</SYS>>\n\n",
+        system_message="You are a helpful assistant. 你是一个乐于助人的助手。请你提供专业、有逻辑、内容真实、有价值的详细回复。",
+        roles=("[INST]", "[/INST]"),
+        sep_style=SeparatorStyle.LLAMA2,
+        sep=" ",
+        sep2=" </s><s>",
+    )
+)
+
+register_conv_template(
+    Conversation(
         name="cutegpt",
         roles=("问：", "答：\n"),
         sep_style=SeparatorStyle.NO_COLON_TWO,
@@ -1005,6 +1056,21 @@ register_conv_template(
         name="mistral-7b-openorca",
         system_template="<|im_start|>system\n{system_message}",
         system_message="You are MistralOrca, a large language model trained by Alignment Lab AI. Write out your reasoning step-by-step to be sure you get the right answers!",
+        roles=("<|im_start|>user", "<|im_start|>assistant"),
+        sep_style=SeparatorStyle.CHATML,
+        sep="<|im_end|>",
+        stop_token_ids=[32000, 32001],
+    )
+)
+
+
+# ehartford/dolphin-2.2.1-mistral-7b template
+# reference: https://huggingface.co/ehartford/dolphin-2.2.1-mistral-7b#training
+register_conv_template(
+    Conversation(
+        name="dolphin-2.2.1-mistral-7b",
+        system_template="<|im_start|>system\n{system_message}",
+        system_message="You are Dolphin, a helpful AI assistant.",
         roles=("<|im_start|>user", "<|im_start|>assistant"),
         sep_style=SeparatorStyle.CHATML,
         sep="<|im_end|>",
@@ -1246,12 +1312,38 @@ register_conv_template(
         stop_str="<|user|>",
     )
 )
+# xDAN default template
+# source: https://huggingface.co/xDAN-AI/xDAN-L1-Chat-v0.1
+register_conv_template(
+    Conversation(
+        name="xdan-v1",
+        system_message="You are a helpful  and harmless assistant named xDAN and created by xDAN-AI.Please response and work on questions thinking step by step.",
+        roles=("### Human", "### Assistant"),
+        sep_style=SeparatorStyle.NO_COLON_SINGLE,
+        sep="\n",
+        stop_str="</s>",
+    )
+)
 
 # Zephyr template
 # reference: https://huggingface.co/spaces/HuggingFaceH4/zephyr-playground/blob/main/dialogues.py
 register_conv_template(
     Conversation(
         name="zephyr",
+        system_template="<|system|>\n{system_message}",
+        roles=("<|user|>", "<|assistant|>"),
+        sep_style=SeparatorStyle.CHATML,
+        sep="</s>",
+        stop_token_ids=[2],
+        stop_str="</s>",
+    )
+)
+
+# CatPPT template
+# reference: https://huggingface.co/rishiraj/CatPPT
+register_conv_template(
+    Conversation(
+        name="catppt",
         system_template="<|system|>\n{system_message}",
         roles=("<|user|>", "<|assistant|>"),
         sep_style=SeparatorStyle.CHATML,
@@ -1286,6 +1378,19 @@ register_conv_template(
         sep="\n\n",
         sep2="<｜end▁of▁sentence｜>",
         stop_str="<｜end▁of▁sentence｜>",
+    )
+)
+
+# Solar-10.7B Chat Template
+# Reference: https://huggingface.co/upstage/SOLAR-10.7B-Instruct-v1.0/blob/main/tokenizer_config.json
+register_conv_template(
+    Conversation(
+        name="solar",
+        system_message="",
+        roles=("### User", "### Assistant"),
+        sep_style=SeparatorStyle.ADD_NEW_LINE_SINGLE,
+        sep="\n\n",
+        stop_str="</s>",
     )
 )
 

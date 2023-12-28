@@ -21,12 +21,16 @@ from fastchat.constants import (
     ErrorCode,
     MODERATION_MSG,
     CONVERSATION_LIMIT_MSG,
+    RATE_LIMIT_MSG,
     SERVER_ERROR_MSG,
     INPUT_CHAR_LEN_LIMIT,
     CONVERSATION_TURN_LIMIT,
     SESSION_EXPIRATION_TIME,
 )
-from fastchat.model.model_adapter import get_conversation_template
+from fastchat.model.model_adapter import (
+    get_conversation_template,
+    ANTHROPIC_MODEL_LIST,
+)
 from fastchat.model.model_registry import get_model_info, model_info
 from fastchat.serve.api_provider import (
     anthropic_api_stream_iter,
@@ -58,11 +62,12 @@ enable_moderation = False
 acknowledgment_md = """
 ### Acknowledgment
 <div class="image-container">
-    <p> We thank <a href="https://www.kaggle.com/" target="_blank">Kaggle</a>, <a href="https://mbzuai.ac.ae/" target="_blank">MBZUAI</a>, <a href="https://www.anyscale.com/" target="_blank">AnyScale</a>, and <a href="https://huggingface.co/" target="_blank">HuggingFace</a> for their <a href="https://lmsys.org/donations/" target="_blank">sponsorship</a>. </p>
-    <img src="https://upload.wikimedia.org/wikipedia/commons/thumb/7/7c/Kaggle_logo.png/400px-Kaggle_logo.png" alt="Image 1">
-    <img src="https://mma.prnewswire.com/media/1227419/MBZUAI_Logo.jpg?p=facebookg" alt="Image 2">
-    <img src="https://docs.anyscale.com/site-assets/logo.png" alt="Image 3">
-    <img src="https://huggingface.co/datasets/huggingface/brand-assets/resolve/main/hf-logo-with-title.png" alt="Image 4">
+    <p> We thank <a href="https://www.kaggle.com/" target="_blank">Kaggle</a>, <a href="https://mbzuai.ac.ae/" target="_blank">MBZUAI</a>, <a href="https://www.anyscale.com/" target="_blank">AnyScale</a>, <a href="https://www.a16z.com/" target="_blank">a16z</a>, and <a href="https://huggingface.co/" target="_blank">HuggingFace</a> for their generous <a href="https://lmsys.org/donations/" target="_blank">sponsorship</a>. </p>
+    <img src="https://upload.wikimedia.org/wikipedia/commons/thumb/7/7c/Kaggle_logo.png/400px-Kaggle_logo.png" alt="Kaggle">
+    <img src="https://mma.prnewswire.com/media/1227419/MBZUAI_Logo.jpg?p=facebookg" alt="MBZUAI">
+    <img src="https://docs.anyscale.com/site-assets/logo.png" alt="AnyScale">
+    <img src="https://a16z.com/wp-content/themes/a16z/assets/images/opegraph_images/corporate-Yoast-Twitter.jpg" alt="a16z">
+    <img src="https://huggingface.co/datasets/huggingface/brand-assets/resolve/main/hf-logo-with-title.png" alt="HuggingFace">
 </div>
 """
 
@@ -87,10 +92,8 @@ class State:
         self.skip_next = False
         self.model_name = model_name
 
-        if model_name == "palm-2":
-            # According to release note, "chat-bison@001" is PaLM 2 for chat.
-            # https://cloud.google.com/vertex-ai/docs/release-notes#May_10_2023
-            self.palm_chat = init_palm_chat("chat-bison@001")
+        if model_name in ["palm-2", "gemini-pro"]:
+            self.palm_chat = init_palm_chat(model_name)
 
     def to_gradio_chatbot(self):
         return self.conv.to_gradio_chatbot()
@@ -138,19 +141,23 @@ def get_model_list(
         models += list(openai_compatible_models_info.keys())
 
     if add_chatgpt:
-        models += ["gpt-3.5-turbo", "gpt-4", "gpt-4-turbo", "gpt-3.5-turbo-1106"]
+        models += [
+            "gpt-4-0314",
+            "gpt-4-0613",
+            "gpt-3.5-turbo-0613",
+            "gpt-3.5-turbo-1106",
+        ]
     if add_claude:
-        models += ["claude-2", "claude-instant-1"]
+        models += ["claude-2.1", "claude-2.0", "claude-instant-1"]
     if add_palm:
-        models += ["palm-2"]
+        models += ["gemini-pro"]
     models = list(set(models))
 
-    if "deluxe-chat-v1" in models:
-        del models[models.index("deluxe-chat-v1")]
-    if "deluxe-chat-v1.1" in models:
-        del models[models.index("deluxe-chat-v1.1")]
+    hidden_models = ["gpt-4-0314", "gpt-4-0613"]
+    for hm in hidden_models:
+        del models[models.index(hm)]
 
-    priority = {k: f"___{i:02d}" for i, k in enumerate(model_info)}
+    priority = {k: f"___{i:03d}" for i, k in enumerate(model_info)}
     models.sort(key=lambda x: priority.get(x, x))
     logger.info(f"Models: {models}")
     return models
@@ -325,7 +332,14 @@ def model_worker_stream_iter(
             yield data
 
 
-def bot_response(state, temperature, top_p, max_new_tokens, request: gr.Request):
+def bot_response(
+    state,
+    temperature,
+    top_p,
+    max_new_tokens,
+    request: gr.Request,
+    apply_rate_limit=True,
+):
     ip = get_ip(request)
     logger.info(f"bot_response. ip: {ip}")
     start_tstamp = time.time()
@@ -340,21 +354,7 @@ def bot_response(state, temperature, top_p, max_new_tokens, request: gr.Request)
         return
 
     conv, model_name = state.conv, state.model_name
-    if model_name in ["gpt-3.5-turbo", "gpt-4", "gpt-4-turbo", "gpt-3.5-turbo-1106"]:
-        prompt = conv.to_openai_api_messages()
-        stream_iter = openai_api_stream_iter(
-            model_name, prompt, temperature, top_p, max_new_tokens
-        )
-    elif model_name in ["claude-2", "claude-1", "claude-instant-1"]:
-        prompt = conv.get_prompt()
-        stream_iter = anthropic_api_stream_iter(
-            model_name, prompt, temperature, top_p, max_new_tokens
-        )
-    elif model_name == "palm-2":
-        stream_iter = palm_api_stream_iter(
-            state.palm_chat, conv.messages[-2][1], temperature, top_p, max_new_tokens
-        )
-    elif model_name in openai_compatible_models_info:
+    if model_name in openai_compatible_models_info:
         model_info = openai_compatible_models_info[model_name]
         prompt = conv.to_openai_api_messages()
         stream_iter = openai_api_stream_iter(
@@ -365,6 +365,36 @@ def bot_response(state, temperature, top_p, max_new_tokens, request: gr.Request)
             max_new_tokens,
             api_base=model_info["api_base"],
             api_key=model_info["api_key"],
+        )
+    elif model_name in [
+        "gpt-3.5-turbo",
+        "gpt-3.5-turbo-0301",
+        "gpt-3.5-turbo-0613",
+        "gpt-3.5-turbo-1106",
+        "gpt-4",
+        "gpt-4-0314",
+        "gpt-4-0613",
+        "gpt-4-turbo",
+    ]:
+        # avoid conflict with Azure OpenAI
+        assert model_name not in openai_compatible_models_info
+        prompt = conv.to_openai_api_messages()
+        stream_iter = openai_api_stream_iter(
+            model_name, prompt, temperature, top_p, max_new_tokens
+        )
+    elif model_name in ANTHROPIC_MODEL_LIST:
+        prompt = conv.get_prompt()
+        stream_iter = anthropic_api_stream_iter(
+            model_name, prompt, temperature, top_p, max_new_tokens
+        )
+    elif model_name in ["palm-2", "gemini-pro"]:
+        stream_iter = palm_api_stream_iter(
+            model_name,
+            state.palm_chat,
+            conv.messages[-2][1],
+            temperature,
+            top_p,
+            max_new_tokens,
         )
     else:
         # Query worker address
@@ -493,6 +523,9 @@ block_css = """
     padding-top: 6px;
     padding-bottom: 6px;
 }
+#model_description_markdown {
+    font-size: 110%
+}
 #leaderboard_markdown {
     font-size: 110%
 }
@@ -504,6 +537,9 @@ block_css = """
     line-height: 0.1em;
 }
 #about_markdown {
+    font-size: 110%
+}
+#ack_markdown {
     font-size: 110%
 }
 #input_box textarea {
@@ -518,17 +554,18 @@ footer {
 }
 .image-container img {
     margin: 0 30px;
-    height: 20px;
+    height: 30px;
     max-height: 100%;
     width: auto;
     max-width: 20%;
 }
 .image-about img {
     margin: 0 30px;
-    margin-top:  30px;
+    margin-top: 30px;
     height: 60px;
     max-height: 100%;
     width: auto;
+    max-width: 20%;
     float: left;
 }
 """
@@ -560,7 +597,7 @@ def get_model_description_md(models):
 def build_about():
     about_markdown = f"""
 # About Us
-Chatbot Arena is an open-source research project developed by members from [LMSYS](https://lmsys.org/about/) and UC Berkeley [SkyLab](https://sky.cs.berkeley.edu/).  Our mission is to build an open crowdsourced platform to collect human feedback and evaluate LLMs under real-world scenarios. We open-source our code at [GitHub](https://github.com/lm-sys/FastChat) and release chat and human feedback datasets [here](https://github.com/lm-sys/FastChat/blob/main/docs/dataset_release.md). We invite everyone to join us in this journey!
+Chatbot Arena is an open-source research project developed by members from [LMSYS](https://lmsys.org/about/) and UC Berkeley [SkyLab](https://sky.cs.berkeley.edu/).  Our mission is to build an open crowdsourced platform to collect human feedback and evaluate LLMs under real-world scenarios. We open-source our [FastChat](https://github.com/lm-sys/FastChat) project at GitHub and release chat and human feedback datasets [here](https://github.com/lm-sys/FastChat/blob/main/docs/dataset_release.md). We invite everyone to join us in this journey!
 
 ## Read More
 - Chatbot Arena [launch post](https://lmsys.org/blog/2023-05-03-arena/), [data release](https://lmsys.org/blog/2023-07-20-dataset/)
@@ -577,15 +614,17 @@ Chatbot Arena is an open-source research project developed by members from [LMSY
 - File issues on [GitHub](https://github.com/lm-sys/FastChat)
 - Download our datasets and models on [HuggingFace](https://huggingface.co/lmsys)
 
-## Sponsors
-We thank [Kaggle](https://www.kaggle.com/), [MBZUAI](https://mbzuai.ac.ae/), [Anyscale](https://www.anyscale.com/), [HuggingFace](https://huggingface.co/) for their generous sponsorship.
+## Acknowledgment
+We thank [SkyPilot](https://github.com/skypilot-org/skypilot) and [Gradio](https://github.com/gradio-app/gradio) team for their system support.
+We also thank [Kaggle](https://www.kaggle.com/), [MBZUAI](https://mbzuai.ac.ae/), [Anyscale](https://www.anyscale.com/), [a16z](https://www.a16z.com/), [HuggingFace](https://huggingface.co/) for their generous sponsorship.
 Learn more about partnership [here](https://lmsys.org/donations/).
 
 <div class="image-about">
-    <img src="https://upload.wikimedia.org/wikipedia/commons/thumb/7/7c/Kaggle_logo.png/400px-Kaggle_logo.png" alt="Image 1">
-    <img src="https://upload.wikimedia.org/wikipedia/en/5/55/Mohamed_bin_Zayed_University_of_Artificial_Intelligence_logo.png" alt="Image 2">
-    <img src="https://docs.anyscale.com/site-assets/logo.png" alt="Image 3">
-    <img src="https://huggingface.co/datasets/huggingface/brand-assets/resolve/main/hf-logo.png" alt="Image 4">
+    <img src="https://upload.wikimedia.org/wikipedia/commons/thumb/7/7c/Kaggle_logo.png/400px-Kaggle_logo.png" alt="Kaggle">
+    <img src="https://mma.prnewswire.com/media/1227419/MBZUAI_Logo.jpg?p=facebookg" alt="MBZUAI">
+    <img src="https://docs.anyscale.com/site-assets/logo.png" alt="AnyScale">
+    <img src="https://a16z.com/wp-content/themes/a16z/assets/images/opegraph_images/corporate-Yoast-Twitter.jpg" alt="a16z">
+    <img src="https://huggingface.co/datasets/huggingface/brand-assets/resolve/main/hf-logo-with-title.png" alt="HuggingFace">
 </div>
 """
 
@@ -601,6 +640,8 @@ def build_single_model_ui(models, add_promotion_links=False):
 - | [GitHub](https://github.com/lm-sys/FastChat) | [Dataset](https://github.com/lm-sys/FastChat/blob/main/docs/dataset_release.md) | [Twitter](https://twitter.com/lmsysorg) | [Discord](https://discord.gg/HSWAKCrnFx) |
 - Introducing Llama 2: The Next Generation Open Source Large Language Model. [[Website]](https://ai.meta.com/llama/)
 - Vicuna: An Open-Source Chatbot Impressing GPT-4 with 90% ChatGPT Quality. [[Blog]](https://lmsys.org/blog/2023-03-30-vicuna/)
+
+## 🤖 Choose any model to chat
 """
         if add_promotion_links
         else ""
@@ -609,38 +650,42 @@ def build_single_model_ui(models, add_promotion_links=False):
     notice_markdown = f"""
 # 🏔️ Chat with Open Large Language Models
 {promotion}
-
-## Choose any model to chat
 """
 
     state = gr.State()
-    model_description_md = get_model_description_md(models)
-    gr.Markdown(notice_markdown + model_description_md, elem_id="notice_markdown")
+    gr.Markdown(notice_markdown, elem_id="notice_markdown")
 
-    with gr.Row(elem_id="model_selector_row"):
-        model_selector = gr.Dropdown(
-            choices=models,
-            value=models[0] if len(models) > 0 else "",
-            interactive=True,
-            show_label=False,
-            container=False,
-        )
-
-    chatbot = gr.Chatbot(
-        elem_id="chatbot",
-        label="Scroll down and start chatting",
-        height=550,
-    )
-    with gr.Row():
-        with gr.Column(scale=20):
-            textbox = gr.Textbox(
+    with gr.Box(elem_id="share-region-named"):
+        with gr.Row(elem_id="model_selector_row"):
+            model_selector = gr.Dropdown(
+                choices=models,
+                value=models[0] if len(models) > 0 else "",
+                interactive=True,
                 show_label=False,
-                placeholder="👉 Enter your prompt and press ENTER",
                 container=False,
-                elem_id="input_box",
             )
-        with gr.Column(scale=1, min_width=50):
-            send_btn = gr.Button(value="Send", variant="primary")
+        with gr.Row():
+            with gr.Accordion(
+                "🔍 Expand to see 20+ model descriptions",
+                open=False,
+                elem_id="model_description_accordion",
+            ):
+                model_description_md = get_model_description_md(models)
+                gr.Markdown(model_description_md, elem_id="model_description_markdown")
+
+        chatbot = gr.Chatbot(
+            elem_id="chatbot",
+            label="Scroll down and start chatting",
+            height=550,
+        )
+    with gr.Row():
+        textbox = gr.Textbox(
+            show_label=False,
+            placeholder="👉 Enter your prompt and press ENTER",
+            container=False,
+            elem_id="input_box",
+        )
+        send_btn = gr.Button(value="Send", variant="primary", scale=0)
 
     with gr.Row() as button_row:
         upvote_btn = gr.Button(value="👍  Upvote", interactive=False)
@@ -668,15 +713,15 @@ def build_single_model_ui(models, add_promotion_links=False):
         )
         max_output_tokens = gr.Slider(
             minimum=16,
-            maximum=1024,
-            value=512,
+            maximum=2048,
+            value=1024,
             step=64,
             interactive=True,
             label="Max output tokens",
         )
 
     if add_promotion_links:
-        gr.Markdown(acknowledgment_md)
+        gr.Markdown(acknowledgment_md, elem_id="ack_markdown")
 
     # Register listeners
     btn_list = [upvote_btn, downvote_btn, flag_btn, regenerate_btn, clear_btn]
@@ -818,6 +863,11 @@ if __name__ == "__main__":
         type=str,
         help='Set the gradio authentication file path. The file should contain one or more user:password pairs in this format: "u1:p1,u2:p2,u3:p3"',
     )
+    parser.add_argument(
+        "--gradio-root-path",
+        type=str,
+        help="Sets the gradio root path, eg /abc/def. Useful when running behind a reverse-proxy or at a custom URL path prefix",
+    )
     args = parser.parse_args()
     logger.info(f"args: {args}")
 
@@ -846,4 +896,5 @@ if __name__ == "__main__":
         share=args.share,
         max_threads=200,
         auth=auth,
+        root_path=args.gradio_root_path,
     )
