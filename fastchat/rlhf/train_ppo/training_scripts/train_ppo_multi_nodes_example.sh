@@ -14,7 +14,9 @@ done
 
 export WANDB_API_KEY="your wandb api key"
 
-nohup deepspeed --include="10.139.17.63:0,1,2,3,4,5,6,7@10.139.17.136:1,2,3,4,5,6" --master_port 8060 fastchat/rlhf/train_ppo/train_ppo.py \
+#--exclude="10.139.17.136:0,2,3,7"
+nohup deepspeed --hostfile=hostfile  --master_addr "10.139.17.136" --ssh_port 20022 \
+    fastchat/rlhf/train_ppo/train_ppo.py \
     --actor_model_name_or_path "actor_model_name_or_path" \
     --critic_model_name_or_path "critic_model_name_or_path" \
     --stop_words "<|im_start|>" "<|im_end|>"\
@@ -40,15 +42,16 @@ nohup deepspeed --include="10.139.17.63:0,1,2,3,4,5,6,7@10.139.17.136:1,2,3,4,5,
     --actor_gradient_checkpointing \
     --critic_gradient_checkpointing \
     --actor_zero_stage 2 \
+    --ref_zero_stage 3 \
     --critic_zero_stage 3 \
     --lazy_preprocess \
     --offload \
     --align_overflow \
     --offload_reference_model \
-    --deepspeed \
-    --print_answers \
     --report_to "wandb" \
     --report_name "wandb-group-name" \
+    --deepspeed \
+    --print_answers \
     > logs/train_ppo_multi_nodes_log.log 2>&1 &
 
 
