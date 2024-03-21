@@ -120,8 +120,8 @@ def preprocess(
 
     # Mask targets. Only compute loss on the assistant outputs.
     for source, conversation, target in zip(sources, conversations, targets):
-        starts = (target == tokenizer.im_start_id).nonzero(as_tuple=False)
-        ends = (target == tokenizer.im_end_id).nonzero(as_tuple=False)
+        starts = (target == 151644).nonzero(as_tuple=False)
+        ends = (target == 151645).nonzero(as_tuple=False)
         if len(starts)==0 or len(ends)==0 or len(starts) == len(ends) and len(source) != len(starts) - 1:
             target[:] = IGNORE_TOKEN_ID
             rank0_print(
@@ -264,8 +264,10 @@ def train():
     )
 
     # https://github.com/QwenLM/Qwen-7B/blob/main/examples/tokenizer_showcase.ipynb
-    tokenizer.eos_token_id = tokenizer.eod_id
-    tokenizer.pad_token_id = tokenizer.special_tokens['<|extra_0|>']
+    if not hasattr(tokenizer, "eos_token_id"):
+        tokenizer.eos_token_id = tokenizer.eod_id
+    if not hasattr(tokenizer, "pad_token_id"):
+        tokenizer.pad_token_id = tokenizer.eos_token_id
 
     # Load data
     data_module = make_supervised_data_module(tokenizer=tokenizer, data_args=data_args)
