@@ -264,9 +264,9 @@ def train():
     )
 
     # https://github.com/QwenLM/Qwen-7B/blob/main/examples/tokenizer_showcase.ipynb
-    if not hasattr(tokenizer, "eos_token_id"):
+    if not hasattr(tokenizer, "eos_token_id") or not tokenizer.eos_token_id:
         tokenizer.eos_token_id = tokenizer.eod_id
-    if not hasattr(tokenizer, "pad_token_id"):
+    if not hasattr(tokenizer, "pad_token_id") or not tokenizer.pad_token_id:
         tokenizer.pad_token_id = tokenizer.eos_token_id
 
     # Load data
