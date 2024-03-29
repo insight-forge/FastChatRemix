@@ -216,14 +216,14 @@ def make_supervised_data_module(
     rank0_print("Loading data...")
     train_json = []
     for path in data_args.data_path.split(','):
-        train_json.extend(json.load(open(path, "r")))
+        train_json.extend(json.load(open(path, "r", encoding='utf8')))
     # train_json = json.load(open(data_args.data_path, "r"))
     train_dataset = dataset_cls(train_json, tokenizer=tokenizer)
 
     if data_args.eval_data_path:
         eval_json = []
         for path in data_args.eval_data_path.split(','):
-            eval_json.extend(json.load(open(path, "r")))
+            eval_json.extend(json.load(open(path, "r", encoding='utf8')))
         # eval_json = json.load(open(data_args.eval_data_path, "r"))
         eval_dataset = dataset_cls(eval_json, tokenizer=tokenizer)
     else:
@@ -264,9 +264,9 @@ def train():
     )
 
     # https://github.com/QwenLM/Qwen-7B/blob/main/examples/tokenizer_showcase.ipynb
-    if not hasattr(tokenizer, "eos_token_id"):
+    if not hasattr(tokenizer, "eos_token_id") or not tokenizer.eos_token_id:
         tokenizer.eos_token_id = tokenizer.eod_id
-    if not hasattr(tokenizer, "pad_token_id"):
+    if not hasattr(tokenizer, "pad_token_id") or not tokenizer.pad_token_id:
         tokenizer.pad_token_id = tokenizer.eos_token_id
 
     # Load data
