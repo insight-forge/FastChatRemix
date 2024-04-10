@@ -245,20 +245,20 @@ def preprocess(
         pil_images = load_pil_images(images)
 
         images_outputs = tokenizer.vl_chat_processor.image_processor(pil_images, return_tensors="pt")
-        prepare = dict(
-            sft_format=sft_prompt,
-            input_ids=input_ids,
-            pixel_values=images_outputs.pixel_values,
-            num_image_tokens=num_image_tokens,
-            labels=labels
-        )
-        # prepare = VLChatProcessorOutput(
+        # prepare = dict(
         #     sft_format=sft_prompt,
         #     input_ids=input_ids,
         #     pixel_values=images_outputs.pixel_values,
         #     num_image_tokens=num_image_tokens,
         #     labels=labels
         # )
+        prepare = VLChatProcessorOutput(
+            sft_format=sft_prompt,
+            input_ids=input_ids,
+            pixel_values=images_outputs.pixel_values,
+            num_image_tokens=num_image_tokens,
+            labels=labels
+        )
         # prepare = tokenizer.vl_chat_processor.batchify([prepare])
         prepare_list.append(prepare)
 
@@ -317,14 +317,14 @@ def make_supervised_data_module(
     rank0_print("Loading data...")
     train_json = []
     for path in data_args.data_path.split(','):
-        train_json.extend(json.load(open(path, "r")))
+        train_json.extend(json.load(open(path, "r", encoding='utf-8')))
     # train_json = json.load(open(data_args.data_path, "r"))
     train_dataset = dataset_cls(train_json, tokenizer=tokenizer)
 
     if data_args.eval_data_path:
         eval_json = []
         for path in data_args.eval_data_path.split(','):
-            eval_json.extend(json.load(open(path, "r")))
+            eval_json.extend(json.load(open(path, "r", encoding='utf-8')))
         # eval_json = json.load(open(data_args.eval_data_path, "r"))
         eval_dataset = dataset_cls(eval_json, tokenizer=tokenizer)
     else:
@@ -356,10 +356,16 @@ def get_model_tokenizer_deepseek_vl(model_dir: str,
         model.get_input_embeddings = model.language_model.get_input_embeddings
         model.gradient_checkpointing_enable = model.language_model.gradient_checkpointing_enable
         model.forward = model.language_model.forward
+        model.config = model.language_model.config
     return model, tokenizer
 
 
 class DataCollator:
+    def __init__(self, tokenizer):
+        self.pad_token_id = tokenizer.pad_token_id
+        self.image_processor = tokenizer.vl_chat_processor.image_processor
+        self.num_image_tokens = tokenizer.vl_chat_processor.num_image_tokens
+
     def __call__(self, prepare_list: List[VLChatProcessorOutput]):
 
         batch_size = len(prepare_list)
@@ -374,7 +380,7 @@ class DataCollator:
         max_n_images = max(1, max(n_images))
 
         batched_input_ids = torch.full(
-            (batch_size, input_token_max_len), self.pad_id
+            (batch_size, input_token_max_len), self.pad_token_id
         ).long()  # FIXME
         batched_attention_mask = torch.zeros((batch_size, input_token_max_len)).long()
         batched_pixel_values = torch.zeros(
@@ -392,7 +398,7 @@ class DataCollator:
             # left-padding
             batched_attention_mask[i, -seq_len:] = 1
             batched_input_ids[i, -seq_len:] = torch.LongTensor(input_ids)
-            batched_images_seq_mask[i, -seq_len:] = input_ids == self.image_id
+            batched_images_seq_mask[i, -seq_len:] = input_ids == self.pad_token_id
 
             if n_image > 0:
                 batched_pixel_values[i, :n_image] = prepare.pixel_values
@@ -429,11 +435,11 @@ def train():
         use_flash_attn=model_args.use_flash_attn
     )
     tokenizer.model_max_length = training_args.model_max_length
-    tokenizer.pad_token = tokenizer.unk_token
+    tokenizer.pad_token = tokenizer.eos_token
 
     # Load data
     data_module = make_supervised_data_module(tokenizer=tokenizer, data_args=data_args)
-    data_collator = DataCollator()
+    data_collator = DataCollator(tokenizer)
 
     rank0_print("training_args:", training_args)
     rank0_print("model_args:", model_args)
