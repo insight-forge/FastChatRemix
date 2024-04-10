@@ -407,7 +407,7 @@ class DataCollator:
 
             sft_format.append(prepare.sft_format)
 
-        batched_prepares = BatchedVLChatProcessorOutput(
+        batched_prepares = dict(
             input_ids=batched_input_ids,
             attention_mask=batched_attention_mask,
             pixel_values=batched_pixel_values,
