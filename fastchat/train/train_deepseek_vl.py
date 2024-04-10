@@ -36,8 +36,8 @@ from transformers.trainer_pt_utils import LabelSmoother
 from fastchat.conversation import SeparatorStyle
 from fastchat.model.model_adapter import get_conversation_template
 
-from fastchat.model.model_deepseek_vl import MultiModalityCausalLM, MultiModalityConfig
-from fastchat.models.processing_vlm import VLChatProcessor, VLChatProcessorOutput, BatchedVLChatProcessorOutput
+from fastchat.model.model_deepseek_vl import MultiModalityCausalLM, VLChatProcessorOutput, BatchedVLChatProcessorOutput, VLChatProcessor
+# from fastchat.modules.deepseek_vl_visual import VLChatProcessor, VLChatProcessorOutput, BatchedVLChatProcessorOutput
 
 
 IGNORE_TOKEN_ID = LabelSmoother.ignore_index
@@ -316,6 +316,7 @@ def get_model_tokenizer_deepseek_vl(model_dir: str,
                                     use_flash_attn: bool = False):
     vl_chat_processor = VLChatProcessor.from_pretrained(model_dir)
     tokenizer = vl_chat_processor.tokenizer
+
     # flash_attn
     model_config = AutoConfig.from_pretrained(
         model_dir, trust_remote_code=True)
@@ -325,7 +326,7 @@ def get_model_tokenizer_deepseek_vl(model_dir: str,
     else:
         model_config.language_config._flash_attn_2_enabled = use_flash_attn
 
-    model = AutoModelForCausalLM.from_pretrained(model_dir, trust_remote_code=True)
+    model: MultiModalityCausalLM = AutoModelForCausalLM.from_pretrained(model_dir, trust_remote_code=True)
 
     tokenizer.vl_chat_processor = vl_chat_processor
     if load_model:
