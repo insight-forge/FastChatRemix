@@ -27,7 +27,9 @@ import torch
 from torch.utils.data import Dataset
 from torch import dtype as Dtype
 from contextlib import nullcontext
-import PIL.Image
+# from PIL import Image
+import PIL
+from PIL.Image import Image
 
 import transformers
 from transformers import Trainer, AutoConfig, AutoTokenizer, AutoModelForCausalLM
@@ -111,6 +113,7 @@ def add_image_token(
         image_id: int = 100015,
         num_image_tokens: int = 576,
         add_special_token: bool = False,
+        model_max_length:int  = 2048
     ):
         """
 
@@ -125,6 +128,7 @@ def add_image_token(
         """
 
         input_slices = []
+        slices_images = []
         start = 0
         for index in image_indices:
             if add_special_token:
@@ -133,19 +137,32 @@ def add_image_token(
                 end = index
             # original text tokens
             input_slices.append(input_ids[start:end])
+            slices_images.append(0)
 
             # add image tokens, and set the mask as False
             input_slices.append(
                 image_id * torch.ones((num_image_tokens,), dtype=torch.long)
             )
+            slices_images.append(1)
             start = index + 1
 
         # the left part
         input_slices.append(input_ids[start:])
+        slices_images.append(0)
 
-        # concat all slices
-        input_ids = torch.cat(input_slices, dim=0)
-        num_image_tokens = torch.IntTensor([num_image_tokens] * len(image_indices))
+        # truncation and concat all slices
+        total_len = imags_num = 0
+        i = 0
+        while i < len(input_slices):
+            if total_len + input_slices[i].size()[0] > model_max_length:
+                break
+            if slices_images[i]:
+                imags_num+=1
+            i+=1
+
+        # input_ids = torch.cat(input_slices, dim=0)
+        input_ids = input_slices[:model_max_length] if i==0 else torch.cat(input_slices[:i], dim=0)
+        num_image_tokens = torch.IntTensor([num_image_tokens] * imags_num)
 
         return input_ids, num_image_tokens
 
@@ -159,21 +176,20 @@ def load_pil_images(image_list: List[str]) -> List[PIL.Image.Image]:
     return pil_images
 
 
-
 def get_labels(input_ids, assistant_id, user_id):
     labels = input_ids.clone()
     assistant_indices = (labels == assistant_id).nonzero(as_tuple=False)
     user_indices = (labels == user_id).nonzero(as_tuple=False)
-    assert assistant_indices.size()[0] == user_indices.size()[0]
-    print(assistant_indices[0], user_indices)
+    # assert assistant_indices.size()[0] == user_indices.size()[0]
+    # print(assistant_indices[0], user_indices)
 
     labels[: user_indices[0]] = IGNORE_TOKEN_ID
     for start, end in zip(user_indices, assistant_indices):
         labels[start: end + 3] = IGNORE_TOKEN_ID
 
+    if len(user_indices) > len(assistant_indices):
+        labels[user_indices[-1]:] = IGNORE_TOKEN_ID
     return labels
-
-
 
 def preprocess(
     sources,
@@ -181,11 +197,17 @@ def preprocess(
 ) -> Dict:
     roles = {
         "human": 'User',
-         "user": 'User',
-         "gpt": 'Assistant',
-         "assistant": 'Assistant'
+        "Human": 'User',
+        "user": 'User',
+        "User": 'User',
+        "gpt": 'Assistant',
+        "assistant": 'Assistant',
+        "Assistant": 'Assistant',
+        "system": ""
      }
-    conv = get_conversation_template('deepseek-chat')
+    # conv = get_conversation_template("vicuna")
+    conv = get_conversation_template('deepseek-llm-chat')
+    # print(conv.name, conv.roles)
     default_sys_msg = conv.system_message
     assistant_id = tokenizer.vocab.get("Assistant")
     user_id = tokenizer.vocab.get("User")
@@ -202,7 +224,7 @@ def preprocess(
         conv.messages = []
         for j, sentence in enumerate(source):
             role = roles[sentence["from"]]
-            assert role == conv.roles[j % 2], f"{i}"
+            assert role == conv.roles[j % 2], f"{j}"
             conv.append_message(role, sentence["value"].strip())
             if 'images' in sentence:
                 images.extend(sentence['images'])
@@ -406,7 +428,7 @@ def train():
         load_model=True,
         use_flash_attn=model_args.use_flash_attn
     )
-
+    tokenizer.model_max_length = training_args.model_max_length
     tokenizer.pad_token = tokenizer.unk_token
 
     # Load data

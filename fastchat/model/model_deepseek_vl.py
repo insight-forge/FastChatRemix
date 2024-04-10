@@ -35,13 +35,16 @@ from transformers.modeling_outputs import CausalLMOutputWithPast
 from dataclasses import dataclass
 from fastchat.modules.deepseek_vl_visual import CLIPVisionTower, HybridVisionTower
 # from fastchat.model.model_deepseek_vl import MlpProjector
-import PIL.Image
+# import PIL.Image
 from typing import List, Tuple, Union, Optional, Dict
 
 import numpy as np
 import torchvision
 import torchvision.transforms.functional
-from PIL import Image
+# from PIL import Image
+import PIL
+from PIL.Image import Image
+
 from transformers import AutoImageProcessor, PretrainedConfig
 from transformers.image_processing_utils import BaseImageProcessor, BatchFeature
 from transformers.image_utils import to_numpy_array
@@ -73,7 +76,7 @@ class VLChatProcessorOutput(DictOutput):
         return len(self.input_ids)
 
 
-ImageType = Union[np.ndarray, torch.Tensor, Image.Image]
+ImageType = Union[np.ndarray, torch.Tensor, Image]
 IMAGENET_MEAN = (0.48145466, 0.4578275, 0.40821073)
 IMAGENET_STD = (0.26862954, 0.26130258, 0.27577711)
 IMAGENET_INCEPTION_MEAN = (0.5, 0.5, 0.5)
@@ -85,11 +88,11 @@ def expand2square(pil_img, background_color):
     if width == height:
         return pil_img
     elif width > height:
-        result = Image.new(pil_img.mode, (width, width), background_color)
+        result = PIL.Image.new(pil_img.mode, (width, width), background_color)
         result.paste(pil_img, (0, (width - height) // 2))
         return result
     else:
-        result = Image.new(pil_img.mode, (height, height), background_color)
+        result = PIL.Image.new(pil_img.mode, (height, height), background_color)
         result.paste(pil_img, ((height - width) // 2, 0))
         return result
 
