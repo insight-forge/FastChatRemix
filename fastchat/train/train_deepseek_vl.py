@@ -43,7 +43,7 @@ from fastchat.model.model_deepseek_vl import MultiModalityCausalLM, VLChatProces
 
 
 IGNORE_TOKEN_ID = LabelSmoother.ignore_index
-
+IMAGE_PALCEHOLDER = "<image_placeholder>"
 
 @dataclass
 class ModelArguments:
@@ -211,7 +211,7 @@ def preprocess(
     default_sys_msg = conv.system_message
     assistant_id = tokenizer.vocab.get("Assistant")
     user_id = tokenizer.vocab.get("User")
-    image_id = tokenizer.vocab.get("<image_placeholder>")
+    image_id = tokenizer.vocab.get(IMAGE_PALCEHOLDER)
 
     prepare_list = []
     for i, source in enumerate(sources):
@@ -237,7 +237,8 @@ def preprocess(
         image_indices = image_token_mask.nonzero()
         input_ids, num_image_tokens = add_image_token(
             image_indices=image_indices,
-            input_ids=input_ids
+            input_ids=input_ids,
+            image_id=image_id
         )
 
         labels = get_labels(input_ids, assistant_id, user_id)
@@ -352,10 +353,10 @@ def get_model_tokenizer_deepseek_vl(model_dir: str,
 
     tokenizer.vl_chat_processor = vl_chat_processor
     if load_model:
-        model.generate = model.language_model.generate
+        # model.generate = model.language_model.generate
         model.get_input_embeddings = model.language_model.get_input_embeddings
         model.gradient_checkpointing_enable = model.language_model.gradient_checkpointing_enable
-        model.forward = model.language_model.forward
+        # model.forward = model.language_model.forward
         model.config = model.language_model.config
     return model, tokenizer
 
@@ -365,6 +366,7 @@ class DataCollator:
         self.pad_token_id = tokenizer.pad_token_id
         self.image_processor = tokenizer.vl_chat_processor.image_processor
         self.num_image_tokens = tokenizer.vl_chat_processor.num_image_tokens
+        self.image_id = tokenizer.vocab.get(IMAGE_PALCEHOLDER)
 
     def __call__(self, prepare_list: List[VLChatProcessorOutput]):
 
@@ -398,7 +400,7 @@ class DataCollator:
             # left-padding
             batched_attention_mask[i, -seq_len:] = 1
             batched_input_ids[i, -seq_len:] = torch.LongTensor(input_ids)
-            batched_images_seq_mask[i, -seq_len:] = input_ids == self.pad_token_id
+            batched_images_seq_mask[i, -seq_len:] = input_ids == self.image_id
 
             if n_image > 0:
                 batched_pixel_values[i, :n_image] = prepare.pixel_values
