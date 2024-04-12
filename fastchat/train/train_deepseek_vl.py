@@ -384,6 +384,9 @@ class DataCollator:
         batched_input_ids = torch.full(
             (batch_size, input_token_max_len), self.pad_token_id
         ).long()  # FIXME
+        batched_labels = torch.full(
+            (batch_size, input_token_max_len), IGNORE_TOKEN_ID
+        ).long()
         batched_attention_mask = torch.zeros((batch_size, input_token_max_len)).long()
         batched_pixel_values = torch.zeros(
             (batch_size, max_n_images, *self.image_processor.default_shape)
@@ -395,11 +398,13 @@ class DataCollator:
 
         for i, prepare in enumerate(prepare_list):
             input_ids = prepare.input_ids
+            labels = prepare.labels
             seq_len = len(prepare)
             n_image = len(prepare.num_image_tokens)
             # left-padding
             batched_attention_mask[i, -seq_len:] = 1
             batched_input_ids[i, -seq_len:] = torch.LongTensor(input_ids)
+            batched_labels[i, -seq_len:] = torch.LongTensor(labels)
             batched_images_seq_mask[i, -seq_len:] = input_ids == self.image_id
 
             if n_image > 0:
@@ -415,7 +420,8 @@ class DataCollator:
             pixel_values=batched_pixel_values,
             images_seq_mask=batched_images_seq_mask,
             images_emb_mask=batched_images_emb_mask,
-            sft_format=sft_format,
+            labels=batched_labels,
+            sft_format=sft_format
         )
 
         return batched_prepares
