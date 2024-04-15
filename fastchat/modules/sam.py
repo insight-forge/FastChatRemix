@@ -162,7 +162,24 @@ class ImageEncoderViT(nn.Module):
         if self.sam_hd:
             self.hd_alpha_downsamples = nn.Parameter(torch.zeros(1))
             # self.neck_hd = nn.Linear(embed_dim, embed_dim)
-            self.neck_hd = copy.deepcopy(self.neck)
+            # self.neck_hd = copy.deepcopy(self.neck)
+            self.neck_hd = nn.Sequential(
+                nn.Conv2d(
+                    embed_dim,
+                    out_chans,
+                    kernel_size=1,
+                    bias=False,
+                ),
+                LayerNorm2d(out_chans),
+                nn.Conv2d(
+                    out_chans,
+                    out_chans,
+                    kernel_size=3,
+                    padding=1,
+                    bias=False,
+                ),
+                LayerNorm2d(out_chans),
+            )
             # self.downsamples_hd = copy.deepcopy(self.downsamples)
 
     def forward(self, x: torch.Tensor) -> torch.Tensor:
