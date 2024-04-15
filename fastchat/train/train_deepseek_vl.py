@@ -25,9 +25,7 @@ from packaging import version
 import numpy as np
 import torch
 from torch.utils.data import Dataset
-from torch import dtype as Dtype
-from contextlib import nullcontext
-# from PIL import Image
+
 import PIL
 from PIL.Image import Image
 
@@ -35,10 +33,10 @@ import transformers
 from transformers import Trainer, AutoConfig, AutoTokenizer, AutoModelForCausalLM
 from transformers.trainer_pt_utils import LabelSmoother
 
-from fastchat.conversation import SeparatorStyle
+# from fastchat.conversation import SeparatorStyle
 from fastchat.model.model_adapter import get_conversation_template
 
-from fastchat.model.model_deepseek_vl import MultiModalityCausalLM, VLChatProcessorOutput, BatchedVLChatProcessorOutput, VLChatProcessor
+from fastchat.model.model_deepseek_vl import MultiModalityCausalLM, VLChatProcessorOutput, VLChatProcessor
 # from fastchat.modules.deepseek_vl_visual import VLChatProcessor, VLChatProcessorOutput, BatchedVLChatProcessorOutput
 
 
@@ -238,7 +236,8 @@ def preprocess(
         input_ids, num_image_tokens = add_image_token(
             image_indices=image_indices,
             input_ids=input_ids,
-            image_id=image_id
+            image_id=image_id,
+            model_max_length=tokenizer.model_max_length
         )
 
         labels = get_labels(input_ids, assistant_id, user_id)
@@ -357,7 +356,8 @@ def get_model_tokenizer_deepseek_vl(model_dir: str,
         model.get_input_embeddings = model.language_model.get_input_embeddings
         model.gradient_checkpointing_enable = model.language_model.gradient_checkpointing_enable
         # model.forward = model.language_model.forward
-        model.config = model.language_model.config
+        # model.config = model.language_model.config
+        model.config.hidden_size = model.language_model.config.hidden_size
     return model, tokenizer
 
 
