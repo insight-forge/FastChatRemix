@@ -183,7 +183,7 @@ def get_labels(input_ids, assistant_id, user_id):
 
     labels[: user_indices[0]] = IGNORE_TOKEN_ID
     for start, end in zip(user_indices, assistant_indices):
-        labels[start: end + 3] = IGNORE_TOKEN_ID
+        labels[start: end + 2] = IGNORE_TOKEN_ID
 
     if len(user_indices) > len(assistant_indices):
         labels[user_indices[-1]:] = IGNORE_TOKEN_ID
