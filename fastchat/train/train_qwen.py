@@ -31,6 +31,10 @@ from transformers.trainer_pt_utils import LabelSmoother
 from fastchat.conversation import SeparatorStyle
 from fastchat.model.model_adapter import get_conversation_template
 
+## for qwen-vl
+from PIL import ImageFile
+ImageFile.LOAD_TRUNCATED_IMAGES = True
+
 IGNORE_TOKEN_ID = LabelSmoother.ignore_index
 
 
