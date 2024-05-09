@@ -31,6 +31,10 @@ from transformers.trainer_pt_utils import LabelSmoother
 from fastchat.conversation import SeparatorStyle
 from fastchat.model.model_adapter import get_conversation_template
 
+## for qwen-vl
+from PIL import ImageFile
+ImageFile.LOAD_TRUNCATED_IMAGES = True
+
 IGNORE_TOKEN_ID = LabelSmoother.ignore_index
 
 
@@ -216,14 +220,14 @@ def make_supervised_data_module(
     rank0_print("Loading data...")
     train_json = []
     for path in data_args.data_path.split(','):
-        train_json.extend(json.load(open(path, "r")))
+        train_json.extend(json.load(open(path, "r", encoding='utf8')))
     # train_json = json.load(open(data_args.data_path, "r"))
     train_dataset = dataset_cls(train_json, tokenizer=tokenizer)
 
     if data_args.eval_data_path:
         eval_json = []
         for path in data_args.eval_data_path.split(','):
-            eval_json.extend(json.load(open(path, "r")))
+            eval_json.extend(json.load(open(path, "r", encoding='utf8')))
         # eval_json = json.load(open(data_args.eval_data_path, "r"))
         eval_dataset = dataset_cls(eval_json, tokenizer=tokenizer)
     else:
