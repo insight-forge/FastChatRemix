@@ -60,7 +60,7 @@ class DataArguments:
         default=None, metadata={"help": "Path to the evaluation data."}
     )
     lazy_preprocess: bool = False
-    max_image_num:int = field(
+    max_image_num: int = field(
         default=6, metadata={"help": "The max image num to be splited."}
     )
 
@@ -212,6 +212,7 @@ def preprocess(
     # Apply prompt templates
     conversations = []
     pixel_values_all = []
+    image_flags_all = []
     for i, source in enumerate(sources):
         conv_template.system_message = source[0]["value"] if roles[source[0]["from"]].strip() == "<|system|>" else default_sys_msg
         if source[0]["from"] != "human":
@@ -230,8 +231,9 @@ def preprocess(
                 pixel_values = torch.cat(pixel_values, dim=0)
                 pixel_values_all.append(pixel_values)
                 # dynamic ViT batch size
-                image_bs = pixel_values.shape[0]
-                sentence = sentence.replace(IMG_CONTEXT_TOKEN, IMG_CONTEXT_TOKEN * image_bs * data_args.num_image_token)
+                num_patches = pixel_values.shape[0]
+                image_flags_all.append(torch.tensor([1] * num_patches, dtype=torch.long))
+                sentence = sentence.replace(IMG_CONTEXT_TOKEN, IMG_CONTEXT_TOKEN * num_patches * data_args.num_image_token)
             conv_template.append_message(role, sentence)
         conversations.append(conv_template.get_prompt())
         print(conv_template.get_prompt())
@@ -281,7 +283,8 @@ def preprocess(
             input_ids=input_ids,
             labels=targets,
             attention_mask=input_ids.ne(tokenizer.pad_token_id),
-            pixel_values=pixel_values_all
+            pixel_values=pixel_values_all,
+            image_flags=image_flags_all
         )
 
 class SupervisedDataset(Dataset):
@@ -308,7 +311,8 @@ class SupervisedDataset(Dataset):
             input_ids=self.input_ids[i],
             labels=self.labels[i],
             attention_mask=self.attention_mask[i],
-            pixel_values=self.pixel_values[i]
+            pixel_values=self.pixel_values[i],
+            image_flags=self.image_flags[i]
         )
 
 class LazySupervisedDataset(Dataset):
@@ -338,6 +342,7 @@ class LazySupervisedDataset(Dataset):
             labels=ret["labels"][0],
             attention_mask=ret["attention_mask"][0],
             pixel_values=ret["pixel_values"][0],
+            image_flags=ret["image_flags"][0]
         )
         self.cached_data_dict[i] = ret
 
@@ -374,12 +379,14 @@ class DataCollator:
         labels = torch.stack([_["labels"] for _ in prepare_list])
         attention_mask = torch.stack([_["attention_mask"] for _ in prepare_list])
         pixel_values = torch.cat([_["pixel_values"] for _ in prepare_list], dim=0)
+        image_flags = torch.cat([_["image_flags"] for _ in prepare_list], dim=0)
 
         return dict(
             input_ids=input_ids,
             labels=labels,
             attention_mask=attention_mask,
-            pixel_values=pixel_values
+            pixel_values=pixel_values,
+            image_flags=image_flags
         )
 
 
@@ -413,6 +420,8 @@ def train():
         use_fast=False,
         trust_remote_code=True
     )
+    model.supports_gradient_checkpointing = True
+    model.config.hidden_size = model.language_model.config.hidden_size
     tokenizer.template = model.template
     data_args.num_image_token = model.num_image_token
 
