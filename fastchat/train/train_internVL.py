@@ -234,9 +234,12 @@ def preprocess(
                 num_patches = pixel_values.shape[0]
                 image_flags_all.append(torch.tensor([1] * num_patches, dtype=torch.long))
                 sentence = sentence.replace(IMG_CONTEXT_TOKEN, IMG_CONTEXT_TOKEN * num_patches * data_args.num_image_token)
+            else:
+                pixel_values_all.append(None)
+                image_flags_all.append(None)
             conv_template.append_message(role, sentence)
         conversations.append(conv_template.get_prompt())
-        print(conv_template.get_prompt())
+        # print(conv_template.get_prompt())
 
         # Tokenize conversations
         input_ids = tokenizer(
@@ -259,10 +262,10 @@ def preprocess(
                     f"WARNING: truncation or special tokenization mismatch: len(target): {len(target)} len(source): {len(source)}, len(starts): {len(starts)}, len(ends): {len(ends)}"
                     f" (ignored)"
                 )
-                print(
-                    f"WARNING: truncation or special tokenization mismatch: len(target): {len(target)} len(source): {len(source)}, len(starts): {len(starts)}, len(ends): {len(ends)}"
-                    f" (ignored)"
-                )
+                # print(
+                #     f"WARNING: truncation or special tokenization mismatch: len(target): {len(target)} len(source): {len(source)}, len(starts): {len(starts)}, len(ends): {len(ends)}"
+                #     f" (ignored)"
+                # )
                 continue
 
             for i, (start, end) in enumerate(zip(starts, ends)):
@@ -378,8 +381,8 @@ class DataCollator:
         input_ids = torch.stack([_["input_ids"] for _ in prepare_list])
         labels = torch.stack([_["labels"] for _ in prepare_list])
         attention_mask = torch.stack([_["attention_mask"] for _ in prepare_list])
-        pixel_values = torch.cat([_["pixel_values"] for _ in prepare_list], dim=0)
-        image_flags = torch.cat([_["image_flags"] for _ in prepare_list], dim=0)
+        pixel_values = torch.cat([_["pixel_values"] for _ in prepare_list if _["pixel_values"]], dim=0)
+        image_flags = torch.cat([_["image_flags"] for _ in prepare_list if _["image_flags"]], dim=0)
 
         return dict(
             input_ids=input_ids,
