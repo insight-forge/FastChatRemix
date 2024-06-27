@@ -20,14 +20,14 @@ import math
 import os
 import pathlib
 from typing import Dict, Optional, Sequence
+from collections import Counter
 
 import numpy as np
 import torchvision.transforms as T
 from PIL import Image
-
 from torchvision.transforms.functional import InterpolationMode
 import torch
-from torch.utils.data import Dataset
+from torch.utils.data import Dataset, DataLoader, RandomSampler
 import transformers
 from transformers import Trainer
 from transformers.trainer_pt_utils import LabelSmoother
@@ -60,9 +60,10 @@ class DataArguments:
         default=None, metadata={"help": "Path to the evaluation data."}
     )
     lazy_preprocess: bool = False
-    max_image_num: int = field(
+    max_dynamic_image_num: int = field(
         default=6, metadata={"help": "The max image num to be splited."}
     )
+    dynamic_image_size: bool = True
 
 
 @dataclass
@@ -147,10 +148,13 @@ def dynamic_preprocess(image, min_num=1, max_num=6, image_size=448, use_thumbnai
     return processed_images
 
 
-def load_image(image_file, input_size=448, max_num=6):
+def load_image(image_file, input_size=448, max_num=6, dynamic_image_size=True):
     image = Image.open(image_file).convert('RGB')
     transform = build_transform(input_size=input_size)
-    images = dynamic_preprocess(image, image_size=input_size, use_thumbnail=True, max_num=max_num)
+    if dynamic_image_size:
+        images = dynamic_preprocess(image, image_size=input_size, use_thumbnail=True, max_num=max_num)
+    else:
+        images = [image]
     pixel_values = [transform(image) for image in images]
     pixel_values = torch.stack(pixel_values)
     return pixel_values
@@ -186,21 +190,37 @@ register_conv_template(
     )
 )
 
+register_conv_template(
+    Conversation(
+        name='internlm2-chat',
+        system_template='<|im_start|>system\n{system_message}<|im_end|>',
+        system_message='You are an AI assistant whose name is InternLM (书生·浦语).',
+        roles=('<|im_start|>user\n', '<|im_start|>assistant\n'),
+        sep_style=SeparatorStyle.NO_COLON_SINGLE,
+        sep='<|im_end|>',
+        stop_token_ids=[
+            2,
+            92543,
+            92542
+        ]
+    )
+)
 
-def preprocess(
+
+def preprocess_phi3(
         sources,
         tokenizer: transformers.PreTrainedTokenizer,
-        conv_template,
+        conv_template: Conversation,
         data_args
 ) -> Dict:
     roles = {
-        "human": '<|user|>\n',
-        "user": '<|user|>\n',
-        "Human": '<|user|>\n',
-        "User": '<|user|>\n',
-        "gpt": '<|assistant|>\n',
-        "assistant": '<|assistant|>\n',
-        "Assistant": '<|assistant|>\n',
+        "human": conv_template.roles[0],
+        "user": conv_template.roles[0],
+        "Human": conv_template.roles[0],
+        "User": conv_template.roles[0],
+        "gpt": conv_template.roles[1],
+        "assistant": conv_template.roles[1],
+        "Assistant": conv_template.roles[1],
         "system": "<|system|>\n",
         "System": "<|system|>\n"
     }
@@ -214,97 +234,231 @@ def preprocess(
     pixel_values_all = []
     image_flags_all = []
     for i, source in enumerate(sources):
-        conv_template.system_message = source[0]["value"] if roles[source[0]["from"]].strip() == "<|system|>" else default_sys_msg
+        conv_template.system_message = source[0]["value"] if roles[source[0][
+            "from"]].strip() == "<|system|>" else default_sys_msg
         if source[0]["from"] != "human":
             # Skip the first one if it is not from human
             source = source[1:]
             sources[i] = source
         conv_template.messages = []
+        pixel_values = []
+        image_flags = []
         for j, sentence in enumerate(source):
             role = roles[sentence["from"]]
             # assert role == conv.roles[j % 2], f"{i}"
             imgs = sentence.get("images", None)
             sentence = sentence["value"].strip()
-            if imgs:
-                assert sentence.count(IMG_CONTEXT_TOKEN) == 1
-                pixel_values = [load_image(img, max_num=data_args.max_image_num) for img in imgs]
-                pixel_values = torch.cat(pixel_values, dim=0)
-                pixel_values_all.append(pixel_values)
-                # dynamic ViT batch size
-                num_patches = pixel_values.shape[0]
-                image_flags_all.append(torch.tensor([1] * num_patches, dtype=torch.long))
-                sentence = sentence.replace(IMG_CONTEXT_TOKEN, IMG_CONTEXT_TOKEN * num_patches * data_args.num_image_token)
-            else:
-                pixel_values_all.append(None)
-                image_flags_all.append(None)
+            img_context_token_ct = sentence.count(IMG_CONTEXT_TOKEN)
+            if imgs and img_context_token_ct == 1:
+                sentence_pixel_values = torch.cat(
+                    [load_image(img, max_num=data_args.max_dynamic_image_num,
+                                dynamic_image_size=data_args.dynamic_image_size) for img in imgs])
+                sentence_num_patches = sentence_pixel_values.shape[0]
+                sentence_image_flags = torch.tensor([1] * sentence_num_patches, dtype=torch.long)
+                sentence = sentence.replace(IMG_CONTEXT_TOKEN,
+                                            IMG_CONTEXT_TOKEN * sentence_num_patches * data_args.num_image_token)
+                pixel_values.append(sentence_pixel_values)
+                image_flags.append(sentence_image_flags)
+            elif imgs or img_context_token_ct != 0:
+                raise (
+                    f"Input include {len(imgs)} images, the IMG_CONTEXT_TOKEN number must to be 1, but got {img_context_token_ct}")
+
             conv_template.append_message(role, sentence)
+        if not pixel_values:
+            ## fake images
+            pixel_values = torch.zeros((1, 3, 448, 448))
+            image_flags = torch.tensor([0], dtype=torch.long)
+        else:
+            pixel_values = torch.cat(pixel_values, dim=0)
+            image_flags = torch.cat(image_flags, dim=0)
+        assert pixel_values.shape[0] == image_flags.shape[0]
+        pixel_values_all.append(pixel_values)
+        image_flags_all.append(image_flags)
         conversations.append(conv_template.get_prompt())
-        # print(conv_template.get_prompt())
 
-        # Tokenize conversations
-        input_ids = tokenizer(
-            conversations,
-            return_tensors="pt",
-            padding="max_length",
-            max_length=tokenizer.model_max_length,
-            truncation=True,
-        ).input_ids
-        targets = input_ids.clone()
+    # Tokenize conversations
+    input_ids = tokenizer(
+        conversations,
+        return_tensors="pt",
+        padding="max_length",
+        max_length=tokenizer.model_max_length,
+        truncation=True,
+    ).input_ids
+    targets = input_ids.clone()
 
-        # Mask targets. Only compute loss on the assistant outputs.
-        for source, conversation, target in zip(sources, conversations, targets):
-            starts = (target == user_token_ids).nonzero(as_tuple=False)
-            ends = (target == assistant_token_ids).nonzero(as_tuple=False)
+    # Mask targets. Only compute loss on the assistant outputs.
+    for source, conversation, target in zip(sources, conversations, targets):
+        starts = (target == user_token_ids).nonzero(as_tuple=False)
+        ends = (target == assistant_token_ids).nonzero(as_tuple=False)
+        utterance_ends = (target == end_token_ids).nonzero(as_tuple=False)
+        if len(starts) == 0 or len(ends) == 0 or len(starts) == len(ends) and len(source) != len(starts) * 2:
+            target[:] = IGNORE_TOKEN_ID
+            rank0_print(
+                f"WARNING: truncation or special tokenization mismatch: len(target): {len(target)} len(source): {len(source)}, len(starts): {len(starts)}, len(ends): {len(ends)}"
+                f" (ignored)"
+            )
+            continue
 
-            if len(starts) == 0 or len(ends) == 0 or len(starts) == len(ends) and len(source) != len(starts) * 2:
-                target[:] = IGNORE_TOKEN_ID
-                rank0_print(
-                    f"WARNING: truncation or special tokenization mismatch: len(target): {len(target)} len(source): {len(source)}, len(starts): {len(starts)}, len(ends): {len(ends)}"
-                    f" (ignored)"
-                )
-                # print(
-                #     f"WARNING: truncation or special tokenization mismatch: len(target): {len(target)} len(source): {len(source)}, len(starts): {len(starts)}, len(ends): {len(ends)}"
-                #     f" (ignored)"
-                # )
-                continue
+        for i, (start, end) in enumerate(zip(starts, ends)):
+            target[start: end + 1] = IGNORE_TOKEN_ID
+        target[:starts[0]] = IGNORE_TOKEN_ID
+        target[utterance_ends[-1] + 1:] = IGNORE_TOKEN_ID
+        if len(starts) == len(ends) + 1:
+            target[starts[-1]:] = IGNORE_TOKEN_ID
+        # ends = (target == end_token_ids).nonzero(as_tuple=False)
+        # target[ends[-1]+1:] = IGNORE_TOKEN_ID
 
-            for i, (start, end) in enumerate(zip(starts, ends)):
+        if False:  # Inspect and check the correctness of masking
+            z = target.clone()
+            z = torch.where(z == IGNORE_TOKEN_ID, tokenizer.pad_token_id, z)
+            rank0_print(tokenizer.decode(z))
+            # print(tokenizer.decode(z))
 
-                target[start: end+1] = IGNORE_TOKEN_ID
-            target[:starts[0]] = IGNORE_TOKEN_ID
-            ends = (target == end_token_ids).nonzero(as_tuple=False)
-            target[ends[-1]+1:] = IGNORE_TOKEN_ID
+    return dict(
+        input_ids=input_ids,
+        labels=targets,
+        attention_mask=input_ids.ne(tokenizer.pad_token_id),
+        pixel_values=pixel_values_all,
+        image_flags=image_flags_all,
+        prompts=conversations
+    )
 
 
-            if False:  # Inspect and check the correctness of masking
-                z = target.clone()
-                z = torch.where(z == IGNORE_TOKEN_ID, tokenizer.pad_token_id, z)
-                rank0_print(tokenizer.decode(z))
-                print(tokenizer.decode(z))
+def preprocess_internlm2(
+        sources,
+        tokenizer: transformers.PreTrainedTokenizer,
+        conv_template: Conversation,
+        data_args
+) -> Dict:
+    roles = {
+        "human": conv_template.roles[0],
+        "user": conv_template.roles[0],
+        "Human": conv_template.roles[0],
+        "User": conv_template.roles[0],
+        "gpt": conv_template.roles[1],
+        "assistant": conv_template.roles[1],
+        "Assistant": conv_template.roles[1],
+        "system": '<|im_start|>system\n',
+        "System": '<|im_start|>system\n',
+    }
+    default_sys_msg = conv_template.system_message
+    im_start_token_ids = tokenizer.convert_tokens_to_ids("<|im_start|>")
+    im_end_token_ids = tokenizer.convert_tokens_to_ids("<|im_end|>")
 
-        return dict(
-            input_ids=input_ids,
-            labels=targets,
-            attention_mask=input_ids.ne(tokenizer.pad_token_id),
-            pixel_values=pixel_values_all,
-            image_flags=image_flags_all
-        )
+    # Apply prompt templates
+    conversations = []
+    pixel_values_all = []
+    image_flags_all = []
+    for i, source in enumerate(sources):
+        conv_template.system_message = source[0]["value"] if roles[source[0][
+            "from"]].strip() == '<|im_start|>system' else default_sys_msg
+        if source[0]["from"] != "human":
+            # Skip the first one if it is not from human
+            source = source[1:]
+            # sources[i] = source
+        conv_template.messages = []
+        pixel_values = []
+        image_flags = []
+        for j, sentence in enumerate(source):
+            role = roles[sentence["from"]]
+            # assert role == conv.roles[j % 2], f"{i}"
+            imgs = sentence.get("images", None)
+            sentence = sentence["value"].strip()
+            img_context_token_ct = sentence.count(IMG_CONTEXT_TOKEN)
+            if imgs and img_context_token_ct == 1:
+                sentence_pixel_values = torch.cat(
+                    [load_image(img, max_num=data_args.max_dynamic_image_num,
+                                dynamic_image_size=data_args.dynamic_image_size) for img in imgs])
+                sentence_num_patches = sentence_pixel_values.shape[0]
+                sentence_image_flags = torch.tensor([1] * sentence_num_patches, dtype=torch.long)
+                sentence = sentence.replace(IMG_CONTEXT_TOKEN,
+                                            IMG_CONTEXT_TOKEN * sentence_num_patches * data_args.num_image_token)
+                pixel_values.append(sentence_pixel_values)
+                image_flags.append(sentence_image_flags)
+            elif imgs or img_context_token_ct != 0:
+                raise (
+                    f"Input include {len(imgs)} images, the IMG_CONTEXT_TOKEN number must to be 1, but got {img_context_token_ct}")
+
+            conv_template.append_message(role, sentence)
+        if not pixel_values:
+            ## fake images
+            pixel_values = torch.zeros((1, 3, 448, 448))
+            image_flags = torch.tensor([0], dtype=torch.long)
+        else:
+            pixel_values = torch.cat(pixel_values, dim=0)
+            image_flags = torch.cat(image_flags, dim=0)
+        assert pixel_values.shape[0] == image_flags.shape[0]
+        pixel_values_all.append(pixel_values)
+        image_flags_all.append(image_flags)
+        conversations.append(conv_template.get_prompt())
+
+    # Tokenize conversations
+    input_ids = tokenizer(
+        conversations,
+        return_tensors="pt",
+        padding="max_length",
+        max_length=tokenizer.model_max_length,
+        truncation=True,
+    ).input_ids
+    targets = input_ids.clone()
+
+    # Mask targets. Only compute loss on the assistant outputs.\
+    for source, conversation, target in zip(sources, conversations, targets):
+        starts = (target == im_start_token_ids).nonzero(as_tuple=False)
+        ends = (target == im_end_token_ids).nonzero(as_tuple=False)
+        if len(starts) == 0 or len(ends) == 0 or len(starts) != len(ends):
+            target[:] = IGNORE_TOKEN_ID
+            rank0_print(
+                f"WARNING: truncation or special tokenization mismatch: len(target): {len(target)} len(source): {len(source)}, len(starts): {len(starts)}, len(ends): {len(ends)}"
+                f" (ignored)"
+            )
+            continue
+        for i, (start, end) in enumerate(zip(starts, ends)):
+            role = roles[source[i]["from"]]
+            # if source[i]
+            if role == conv_template.roles[1]:
+                # assistant
+                target[start: start + 4] = IGNORE_TOKEN_ID
+            else:
+                # system or user
+                target[start: end + 1] = IGNORE_TOKEN_ID
+        target[:starts[0]] = IGNORE_TOKEN_ID
+        target[ends[-1]:] = IGNORE_TOKEN_ID
+        if False:  # Inspect and check the correctness of masking
+            z = target.clone()
+            z = torch.where(z == IGNORE_TOKEN_ID, tokenizer.pad_token_id, z)
+            rank0_print(tokenizer.decode(z))
+            print(tokenizer.decode(z))
+
+    return dict(
+        input_ids=input_ids,
+        labels=targets,
+        attention_mask=input_ids.ne(tokenizer.pad_token_id),
+        pixel_values=pixel_values_all,
+        image_flags=image_flags_all,
+        prompts=conversations
+    )
+
 
 class SupervisedDataset(Dataset):
     """Dataset for supervised fine-tuning."""
 
-    def __init__(self, raw_data, tokenizer: transformers.PreTrainedTokenizer, data_args:DataArguments):
+    def __init__(self, raw_data, tokenizer: transformers.PreTrainedTokenizer, data_args: DataArguments):
         super(SupervisedDataset, self).__init__()
 
         rank0_print("Formatting inputs...")
         sources = [example["conversations"] for example in raw_data]
         conv_template = get_conv_template(tokenizer.template)
+        rank0_print("conv_template name:", conv_template.name)
+        preprocess = preprocess_phi3 if tokenizer.template == "phi3-chat" else preprocess_internlm2
         data_dict = preprocess(sources, tokenizer, conv_template, data_args)
 
         self.input_ids = data_dict["input_ids"]
         self.labels = data_dict["labels"]
         self.attention_mask = data_dict["attention_mask"]
         self.pixel_values = data_dict["pixel_values"]
+        self.image_flags = data_dict["image_flags"]
+        self.prompts = data_dict["prompts"]
 
     def __len__(self):
         return len(self.input_ids)
@@ -315,17 +469,21 @@ class SupervisedDataset(Dataset):
             labels=self.labels[i],
             attention_mask=self.attention_mask[i],
             pixel_values=self.pixel_values[i],
-            image_flags=self.image_flags[i]
+            image_flags=self.image_flags[i],
+            prompts=self.prompts[i]
         )
+
 
 class LazySupervisedDataset(Dataset):
     """Dataset for supervised fine-tuning."""
 
-    def __init__(self, raw_data, tokenizer: transformers.PreTrainedTokenizer, data_args:DataArguments):
+    def __init__(self, raw_data, tokenizer: transformers.PreTrainedTokenizer, data_args: DataArguments):
         super(LazySupervisedDataset, self).__init__()
         self.tokenizer = tokenizer
         self.conv_template = get_conv_template(tokenizer.template)
+        rank0_print("conv_template name:", self.conv_template.name)
         self.data_args = data_args
+        self.preprocess = preprocess_phi3 if tokenizer.template == "phi3-chat" else preprocess_internlm2
 
         rank0_print("Formatting inputs...Skip in lazy mode")
         self.tokenizer = tokenizer
@@ -339,20 +497,22 @@ class LazySupervisedDataset(Dataset):
         if i in self.cached_data_dict:
             return self.cached_data_dict[i]
 
-        ret = preprocess([self.raw_data[i]["conversations"]], self.tokenizer, self.conv_template, self.data_args)
+        ret = self.preprocess([self.raw_data[i]["conversations"]], self.tokenizer, self.conv_template, self.data_args)
         ret = dict(
             input_ids=ret["input_ids"][0],
             labels=ret["labels"][0],
             attention_mask=ret["attention_mask"][0],
             pixel_values=ret["pixel_values"][0],
-            image_flags=ret["image_flags"][0]
+            image_flags=ret["image_flags"][0],
+            prompts=ret["prompts"][0]
         )
         self.cached_data_dict[i] = ret
 
         return ret
 
+
 def make_supervised_data_module(
-        tokenizer: transformers.PreTrainedTokenizer, data_args:DataArguments
+        tokenizer: transformers.PreTrainedTokenizer, data_args: DataArguments
 ) -> Dict:
     """Make dataset and collator for supervised fine-tuning."""
     dataset_cls = (
@@ -376,13 +536,17 @@ def make_supervised_data_module(
 
     return dict(train_dataset=train_dataset, eval_dataset=eval_dataset)
 
+
 class DataCollator:
     def __call__(self, prepare_list: list):
         input_ids = torch.stack([_["input_ids"] for _ in prepare_list])
         labels = torch.stack([_["labels"] for _ in prepare_list])
         attention_mask = torch.stack([_["attention_mask"] for _ in prepare_list])
-        pixel_values = torch.cat([_["pixel_values"] for _ in prepare_list if _["pixel_values"]], dim=0)
-        image_flags = torch.cat([_["image_flags"] for _ in prepare_list if _["image_flags"]], dim=0)
+
+        pixel_values = [_["pixel_values"] for _ in prepare_list if _["pixel_values"] is not None]
+        image_flags = [_["image_flags"] for _ in prepare_list if _["image_flags"] is not None]
+        pixel_values = torch.cat(pixel_values) if pixel_values else torch.zeros((0, 1), dtype=torch.long)
+        image_flags = torch.cat(image_flags) if image_flags else torch.zeros((0, 1), dtype=torch.long)
 
         return dict(
             input_ids=input_ids,
@@ -406,7 +570,8 @@ def train():
         model_args.model_name_or_path,
         cache_dir=training_args.cache_dir,
         trust_remote_code=True,
-        use_flash_attn=model_args.use_flash_attn
+        use_flash_attn=model_args.use_flash_attn,
+        dynamic_image_size=data_args.dynamic_image_size
     )
     # Load model and tokenizer
     model = transformers.AutoModel.from_pretrained(
@@ -425,6 +590,7 @@ def train():
     )
     model.supports_gradient_checkpointing = True
     model.config.hidden_size = model.language_model.config.hidden_size
+    model.img_context_token_id = tokenizer.convert_tokens_to_ids(IMG_CONTEXT_TOKEN)
     tokenizer.template = model.template
     data_args.num_image_token = model.num_image_token
 
@@ -447,5 +613,59 @@ def train():
     tokenizer.save_pretrained(final_model_path)
     trainer.save_model(final_model_path)
 
+
+def test_dataset():
+    parser = transformers.HfArgumentParser(
+        (ModelArguments, DataArguments, TrainingArguments)
+    )
+    model_args, data_args, training_args = parser.parse_args_into_dataclasses()
+    local_rank = training_args.local_rank
+
+    config = transformers.AutoConfig.from_pretrained(
+        model_args.model_name_or_path,
+        cache_dir=training_args.cache_dir,
+        trust_remote_code=True,
+        use_flash_attn=model_args.use_flash_attn
+    )
+    tokenizer = transformers.AutoTokenizer.from_pretrained(
+        model_args.model_name_or_path,
+        cache_dir=training_args.cache_dir,
+        model_max_length=training_args.model_max_length,
+        padding_side="right",
+        use_fast=False,
+        trust_remote_code=True
+    )
+    tokenizer.template = config.template
+    image_size = config.force_image_size or config.vision_config.image_size
+    patch_size = config.vision_config.patch_size
+    data_args.num_image_token = int((image_size // patch_size) ** 2 * (config.downsample_ratio ** 2))
+    rank0_print("Loading data...")
+    data_module = make_supervised_data_module(tokenizer=tokenizer, data_args=data_args)
+    eval_dataset = data_module['eval_dataset']
+    # train_sampler = RandomSampler(train_dataset)
+    # data_collator = DataCollator()
+    # dataloader = DataLoader(train_dataset,
+    #            collate_fn=data_collator,
+    #            sampler=train_sampler,
+    #            batch_size=training_args.per_device_train_batch_size)
+    if local_rank == 0:
+        for i in range(0, len(eval_dataset), 20):
+            print("===" * 30)
+            print("prompts: " + eval_dataset[i]['prompts'])
+            print("===" * 30)
+            input_ids = eval_dataset[i]['input_ids']
+            print("input_ids stat:", Counter(input_ids.tolist()))
+            print("decode input_ids: " + tokenizer.decode(input_ids))
+            print("--" * 30)
+            labels = eval_dataset[i]['labels']
+            print("label stat:", Counter(labels.tolist()))
+            z = torch.where(labels == IGNORE_TOKEN_ID, tokenizer.pad_token_id, labels)
+            print("decode labels: " + tokenizer.decode(z))
+            print("===" * 30)
+
+    rank0_print("Done!")
+
+
 if __name__ == "__main__":
     train()
+    # test_dataset()
