@@ -1,4 +1,6 @@
-from fastchat.train.train_qwen7b import preprocess
+# -*- coding: gbk -*-
+from fastchat.train.train_internVL import preprocess
+
 import json
 from transformers import AutoTokenizer
 
@@ -7,28 +9,32 @@ default_test_convs = [
         "id": "7kkIcQi_16",
         "conversations": [
             {
-                "from": "human",
-                "value": "å°å¼ ï¼šæˆ‘æƒ³äº†è§£ç¾å›½çš„æ•™è‚²ä½“ç³»ï¼Œä½ èƒ½ä»‹ç»ä¸€ä¸‹å—ï¼Ÿ"
-            },
-            {
-                "from": "gpt",
-                "value": "é²å‹ƒï¼šå½“ç„¶å¯ä»¥ã€‚ç¾å›½çš„æ•™è‚²ä½“ç³»æ˜¯ä¸€ä¸ªç”±å„ä¸ªå·ç‹¬ç«‹ç®¡ç†çš„è”é‚¦åˆ¶åº¦ï¼Œå„ä¸ªå·éƒ½æœ‰è‡ªå·±çš„æ•™è‚²æ”¿ç­–å’Œæ³•è§„ã€‚ç„¶è€Œï¼Œå¤§å¤šæ•°å·éƒ½ä¼šéµå¾ªè”é‚¦æ”¿åºœçš„æ•™è‚²æ ‡å‡†å’Œè¯¾ç¨‹ï¼Œè¿™äº›æ ‡å‡†ç”±ç¾å›½æ•™è‚²éƒ¨åˆ¶å®šå¹¶æ›´æ–°ã€‚ç¾å›½çš„æ•™è‚²ç³»ç»Ÿå¯ä»¥åˆ†ä¸ºä»¥ä¸‹å‡ ä¸ªé˜¶æ®µï¼š\n\n1. å¹¼å„¿æ•™è‚²ï¼šé€šå¸¸ä»3å²å¼€å§‹ï¼Œåˆ°5æˆ–6å²ç»“æŸã€‚å¹¼å„¿æ•™è‚²é€šå¸¸åŒ…æ‹¬æ¸¸æˆã€éŸ³ä¹ã€è‰ºæœ¯å’ŒåŸºç¡€æ•°å­¦å’Œè¯­è¨€å­¦ä¹ ç­‰æ–¹é¢ã€‚\n2. åŸºç¡€æ•™è‚²ï¼šé€šå¸¸ä»6å²å¼€å§‹ï¼ŒæŒç»­åˆ°18å²ï¼ŒåŒ…æ‹¬å°å­¦ã€åˆä¸­å’Œé«˜ä¸­ã€‚åœ¨è¿™ä¸ªé˜¶æ®µï¼Œå­¦ç”Ÿéœ€è¦å­¦ä¹ æ ¸å¿ƒç§‘ç›®ï¼Œå¦‚è‹±è¯­ã€æ•°å­¦ã€ç§‘å­¦å’Œç¤¾ä¼šç ”ç©¶ï¼Œå¹¶åœ¨é«˜ä¸­é˜¶æ®µé€‰æ‹©å…¶ä»–é€‰ä¿®è¯¾ç¨‹ã€‚\n3. é«˜ç­‰æ•™è‚²ï¼šåŒ…æ‹¬å¤§å­¦å’ŒèŒä¸šæ•™è‚²å­¦é™¢ï¼Œé€šå¸¸åœ¨18å²åå¼€å§‹ã€‚åœ¨è¿™ä¸ªé˜¶æ®µï¼Œå­¦ç”Ÿå¯ä»¥é€‰æ‹©å„ç§å„æ ·çš„ä¸“ä¸šï¼Œä¾‹å¦‚å•†ä¸šã€åŒ»å­¦ã€æ³•å¾‹ã€ç§‘å­¦ã€è‰ºæœ¯ç­‰ã€‚\n\nç¾å›½çš„æ•™è‚²ä½“ç³»æ³¨é‡åŸ¹å…»å­¦ç”Ÿçš„åˆ›é€ åŠ›ã€æ‰¹åˆ¤æ€§æ€ç»´å’Œè§£å†³é—®é¢˜çš„èƒ½åŠ›ï¼Œè®¸å¤šå­¦æ ¡æä¾›å¤šæ ·åŒ–çš„è¯¾ç¨‹å’Œæ´»åŠ¨ï¼Œä»¥ä¾¿å­¦ç”Ÿèƒ½å¤Ÿè·å¾—å…¨é¢çš„æ•™è‚²å’Œä¸ªäººå‘å±•ã€‚åŒæ—¶ï¼Œæ•™è‚²ä¹Ÿæ˜¯ç¾å›½æ”¿åºœå’Œç¤¾ä¼šçš„ä¸€ä¸ªé‡è¦é¢†åŸŸï¼Œæ”¿åºœæ¯å¹´éƒ½ä¼šæŠ•å…¥å¤§é‡çš„ç»è´¹å’Œèµ„æºï¼Œä»¥ç¡®ä¿æ‰€æœ‰å­¦ç”Ÿéƒ½èƒ½è·å¾—å…¬å¹³å’Œé«˜è´¨é‡çš„æ•™è‚²ã€‚"
+                "from": "system",
+                "value": "ÄãÊÇÒ»¸öÓĞÓÃµÄÈË¹¤Ö»ÄÜÖúÊÖ£¡"
             },
             {
                 "from": "human",
-                "value": "å°å¼ ï¼šæˆ‘åœ¨ç¾å›½çœ‹åˆ°å¾ˆå¤šäººç©æ©„æ¦„çƒï¼Œè¿™æ˜¯ç¾å›½çš„ä¼ ç»Ÿè¿åŠ¨å—ï¼Ÿ"
+                "value": "Ğ¡ÕÅ£ºÎÒÏëÁË½âÃÀ¹úµÄ½ÌÓıÌåÏµ£¬ÄãÄÜ½éÉÜÒ»ÏÂÂğ£¿"
             },
             {
                 "from": "gpt",
-                "value": "é²å‹ƒï¼šæ˜¯çš„ï¼Œæ©„æ¦„çƒæ˜¯ç¾å›½çš„ä¸€é¡¹ä¼ ç»Ÿè¿åŠ¨ã€‚å®ƒèµ·æºäºè‹±å›½çš„æ©„æ¦„çƒæ¯”èµ›ï¼Œå¹¶äº19ä¸–çºªä¼ å…¥ç¾å›½ã€‚åœ¨ç¾å›½ï¼Œæ©„æ¦„çƒåœ¨å­¦æ ¡å’Œå¤§å­¦æ ¡å›­å†…éå¸¸æµè¡Œï¼Œè€Œä¸”æ˜¯ä¸€é¡¹å¤‡å—å…³æ³¨çš„èŒä¸šè¿åŠ¨ã€‚æ¯å¹´çš„è¶…çº§ç¢—æ¯”èµ›å°±æ˜¯æ©„æ¦„çƒç•Œçš„ä¸€é¡¹ç››äº‹ï¼Œå¸å¼•äº†å…¨çƒæ•°äº¿è§‚ä¼—çš„å…³æ³¨ã€‚ä¸è¿‡ï¼Œé™¤äº†æ©„æ¦„çƒä¹‹å¤–ï¼Œç¾å›½è¿˜æœ‰å¾ˆå¤šå…¶ä»–çš„ä¼ ç»Ÿè¿åŠ¨ï¼Œä¾‹å¦‚ç¯®çƒã€æ£’çƒå’Œç¾å¼è¶³çƒç­‰ã€‚æ¯ç§è¿åŠ¨éƒ½æœ‰å…¶ç‹¬ç‰¹çš„è§„åˆ™å’Œç‰¹ç‚¹ï¼Œå¸å¼•äº†è®¸å¤šç¾å›½äººçš„å–œçˆ±å’Œæ”¯æŒã€‚"
+                "value": "±«²ª£ºµ±È»¿ÉÒÔ¡£ÃÀ¹úµÄ½ÌÓıÌåÏµÊÇÒ»¸öÓÉ¸÷¸öÖİ¶ÀÁ¢¹ÜÀíµÄÁª°îÖÆ¶È£¬¸÷¸öÖİ¶¼ÓĞ×Ô¼ºµÄ½ÌÓıÕş²ßºÍ·¨¹æ¡£È»¶ø£¬´ó¶àÊıÖİ¶¼»á×ñÑ­Áª°îÕş¸®µÄ½ÌÓı±ê×¼ºÍ¿Î³Ì£¬ÕâĞ©±ê×¼ÓÉÃÀ¹ú½ÌÓı²¿ÖÆ¶¨²¢¸üĞÂ¡£ÃÀ¹úµÄ½ÌÓıÏµÍ³¿ÉÒÔ·ÖÎªÒÔÏÂ¼¸¸ö½×¶Î£º\n\n1. Ó×¶ù½ÌÓı£ºÍ¨³£´Ó3Ëê¿ªÊ¼£¬µ½5»ò6Ëê½áÊø¡£Ó×¶ù½ÌÓıÍ¨³£°üÀ¨ÓÎÏ·¡¢ÒôÀÖ¡¢ÒÕÊõºÍ»ù´¡ÊıÑ§ºÍÓïÑÔÑ§Ï°µÈ·½Ãæ¡£\n2. »ù´¡½ÌÓı£ºÍ¨³£´Ó6Ëê¿ªÊ¼£¬³ÖĞøµ½18Ëê£¬°üÀ¨Ğ¡Ñ§¡¢³õÖĞºÍ¸ßÖĞ¡£ÔÚÕâ¸ö½×¶Î£¬Ñ§ÉúĞèÒªÑ§Ï°ºËĞÄ¿ÆÄ¿£¬ÈçÓ¢Óï¡¢ÊıÑ§¡¢¿ÆÑ§ºÍÉç»áÑĞ¾¿£¬²¢ÔÚ¸ßÖĞ½×¶ÎÑ¡ÔñÆäËûÑ¡ĞŞ¿Î³Ì¡£\n3. ¸ßµÈ½ÌÓı£º°üÀ¨´óÑ§ºÍÖ°Òµ½ÌÓıÑ§Ôº£¬Í¨³£ÔÚ18Ëêºó¿ªÊ¼¡£ÔÚÕâ¸ö½×¶Î£¬Ñ§Éú¿ÉÒÔÑ¡Ôñ¸÷ÖÖ¸÷ÑùµÄ×¨Òµ£¬ÀıÈçÉÌÒµ¡¢Ò½Ñ§¡¢·¨ÂÉ¡¢¿ÆÑ§¡¢ÒÕÊõµÈ¡£\n\nÃÀ¹úµÄ½ÌÓıÌåÏµ×¢ÖØÅàÑøÑ§ÉúµÄ´´ÔìÁ¦¡¢ÅúÅĞĞÔË¼Î¬ºÍ½â¾öÎÊÌâµÄÄÜÁ¦£¬Ğí¶àÑ§Ğ£Ìá¹©¶àÑù»¯µÄ¿Î³ÌºÍ»î¶¯£¬ÒÔ±ãÑ§ÉúÄÜ¹»»ñµÃÈ«ÃæµÄ½ÌÓıºÍ¸öÈË·¢Õ¹¡£Í¬Ê±£¬½ÌÓıÒ²ÊÇÃÀ¹úÕş¸®ºÍÉç»áµÄÒ»¸öÖØÒªÁìÓò£¬Õş¸®Ã¿Äê¶¼»áÍ¶Èë´óÁ¿µÄ¾­·ÑºÍ×ÊÔ´£¬ÒÔÈ·±£ËùÓĞÑ§Éú¶¼ÄÜ»ñµÃ¹«Æ½ºÍ¸ßÖÊÁ¿µÄ½ÌÓı¡£"
             },
             {
                 "from": "human",
-                "value": "æˆ‘å¬è¯´ç¾å›½çš„é£Ÿç‰©ç§ç±»å¾ˆå¤šï¼Œä½ èƒ½ä»‹ç»ä¸€äº›ç¾å›½çš„ç‰¹è‰²é£Ÿå“å—ï¼Ÿ"
+                "value": "Ğ¡ÕÅ£ºÎÒÔÚÃÀ¹ú¿´µ½ºÜ¶àÈËÍæéÏé­Çò£¬ÕâÊÇÃÀ¹úµÄ´«Í³ÔË¶¯Âğ£¿"
             },
             {
                 "from": "gpt",
-                "value": "é²å‹ƒï¼šå½“ç„¶å¯ä»¥ã€‚ç¾å›½æ˜¯ä¸€ä¸ªå¤šå…ƒæ–‡åŒ–çš„å›½å®¶ï¼Œå…¶é£Ÿå“ç§ç±»ä¹Ÿéå¸¸ä¸°å¯Œå¤šæ ·ã€‚ä»¥ä¸‹æ˜¯ä¸€äº›ç¾å›½çš„ç‰¹è‰²é£Ÿå“ï¼š\n\n1. æ±‰å ¡ï¼šæ±‰å ¡æ˜¯ä¸€ç§ç»å…¸çš„ç¾å›½å¿«é¤é£Ÿå“ï¼Œç”±è‚‰é¥¼å’Œé¢åŒ…æ„æˆï¼Œé€šå¸¸è¿˜ä¼šåŠ ä¸Šå„ç§é…æ–™ï¼Œä¾‹å¦‚ç”Ÿèœã€ç•ªèŒ„ã€é…¸é»„ç“œã€æ´‹è‘±å’ŒèŠå£«ç­‰ã€‚\n2. çƒ¤è‚‰ï¼šçƒ¤è‚‰æ˜¯ç¾å›½å®¶åº­çƒ¹é¥ªçš„å¸¸è§æ–¹å¼ï¼Œç»å¸¸åœ¨å¤å­£è¿›è¡Œæˆ·å¤–çƒ§çƒ¤æ´»åŠ¨ã€‚å¸¸è§çš„çƒ¤è‚‰é£ŸæåŒ…æ‹¬ç‰›æ’ã€çŒªæ’ã€é¸¡è‚‰ã€é¦™è‚ å’Œæ±‰å ¡ç­‰ã€‚\n3. ç‚¸é¸¡ï¼šç‚¸é¸¡æ˜¯ç¾å›½å—éƒ¨çš„ä¸€ç§ä¼ ç»Ÿé£Ÿå“ï¼Œä»¥å…¶é…¥è„†çš„å¤–çš®å’Œå¤šæ±çš„è‚‰è´¨è€Œé—»åã€‚é€šå¸¸é…æœ‰é¥¼å¹²ã€é¥­å›¢æˆ–è–¯æ¡ç­‰ã€‚\n4. ç¾å¼æ—©é¤ï¼šç¾å¼æ—©é¤åŒ…æ‹¬ç…è›‹ã€åŸ¹æ ¹ã€çƒ¤é¢åŒ…ã€é¦™è‚ å’Œç…é¥¼ç­‰ï¼Œé€šå¸¸ä¼šé…ä»¥å’–å•¡æˆ–æ©™æ±ã€‚\n5. çƒ­ç‹—ï¼šçƒ­ç‹—æ˜¯ä¸€ç§å¿«é¤é£Ÿå“ï¼Œç”±çƒ¤é¢åŒ…å’Œé¦™è‚ ç»„æˆï¼Œå¸¸é…æœ‰èŠ¥æœ«ã€ç•ªèŒ„é…±å’Œè–¯ç‰‡ç­‰ã€‚\n\nå½“ç„¶ï¼Œè¿™åªæ˜¯ç¾å›½é£Ÿå“ä¸­çš„ä¸€å°éƒ¨åˆ†ï¼Œæ¯ä¸ªå·å’Œåœ°åŒºéƒ½æœ‰å…¶ç‹¬ç‰¹çš„é£Ÿå“æ–‡åŒ–ï¼Œæ‚¨å¯ä»¥åœ¨æ—…è¡Œæ—¶å°è¯•ä¸åŒçš„é£Ÿå“ï¼Œä½“éªŒç¾å›½çš„é¥®é£Ÿæ–‡åŒ–ã€‚"
+                "value": "±«²ª£ºÊÇµÄ£¬éÏé­ÇòÊÇÃÀ¹úµÄÒ»Ïî´«Í³ÔË¶¯¡£ËüÆğÔ´ÓÚÓ¢¹úµÄéÏé­Çò±ÈÈü£¬²¢ÓÚ19ÊÀ¼Í´«ÈëÃÀ¹ú¡£ÔÚÃÀ¹ú£¬éÏé­ÇòÔÚÑ§Ğ£ºÍ´óÑ§Ğ£Ô°ÄÚ·Ç³£Á÷ĞĞ£¬¶øÇÒÊÇÒ»Ïî±¸ÊÜ¹Ø×¢µÄÖ°ÒµÔË¶¯¡£Ã¿ÄêµÄ³¬¼¶Íë±ÈÈü¾ÍÊÇéÏé­Çò½çµÄÒ»ÏîÊ¢ÊÂ£¬ÎüÒıÁËÈ«ÇòÊıÒÚ¹ÛÖÚµÄ¹Ø×¢¡£²»¹ı£¬³ıÁËéÏé­ÇòÖ®Íâ£¬ÃÀ¹ú»¹ÓĞºÜ¶àÆäËûµÄ´«Í³ÔË¶¯£¬ÀıÈçÀºÇò¡¢°ôÇòºÍÃÀÊ½×ãÇòµÈ¡£Ã¿ÖÖÔË¶¯¶¼ÓĞÆä¶ÀÌØµÄ¹æÔòºÍÌØµã£¬ÎüÒıÁËĞí¶àÃÀ¹úÈËµÄÏ²°®ºÍÖ§³Ö¡£"
+            },
+            {
+                "from": "human",
+                "value": "ÎÒÌıËµÃÀ¹úµÄÊ³ÎïÖÖÀàºÜ¶à£¬ÄãÄÜ½éÉÜÒ»Ğ©ÃÀ¹úµÄÌØÉ«Ê³Æ·Âğ£¿"
+            },
+            {
+                "from": "gpt",
+                "value": "±«²ª£ºµ±È»¿ÉÒÔ¡£ÃÀ¹úÊÇÒ»¸ö¶àÔªÎÄ»¯µÄ¹ú¼Ò£¬ÆäÊ³Æ·ÖÖÀàÒ²·Ç³£·á¸»¶àÑù¡£ÒÔÏÂÊÇÒ»Ğ©ÃÀ¹úµÄÌØÉ«Ê³Æ·£º\n\n1. ºº±¤£ººº±¤ÊÇÒ»ÖÖ¾­µäµÄÃÀ¹ú¿ì²ÍÊ³Æ·£¬ÓÉÈâ±ıºÍÃæ°ü¹¹³É£¬Í¨³£»¹»á¼ÓÉÏ¸÷ÖÖÅäÁÏ£¬ÀıÈçÉú²Ë¡¢·¬ÇÑ¡¢Ëá»Æ¹Ï¡¢Ñó´ĞºÍÖ¥Ê¿µÈ¡£\n2. ¿¾Èâ£º¿¾ÈâÊÇÃÀ¹ú¼ÒÍ¥Åëâ¿µÄ³£¼û·½Ê½£¬¾­³£ÔÚÏÄ¼¾½øĞĞ»§ÍâÉÕ¿¾»î¶¯¡£³£¼ûµÄ¿¾ÈâÊ³²Ä°üÀ¨Å£ÅÅ¡¢ÖíÅÅ¡¢¼¦Èâ¡¢Ïã³¦ºÍºº±¤µÈ¡£\n3. Õ¨¼¦£ºÕ¨¼¦ÊÇÃÀ¹úÄÏ²¿µÄÒ»ÖÖ´«Í³Ê³Æ·£¬ÒÔÆäËÖ´àµÄÍâÆ¤ºÍ¶àÖ­µÄÈâÖÊ¶øÎÅÃû¡£Í¨³£ÅäÓĞ±ı¸É¡¢·¹ÍÅ»òÊíÌõµÈ¡£\n4. ÃÀÊ½Ôç²Í£ºÃÀÊ½Ôç²Í°üÀ¨¼åµ°¡¢Åà¸ù¡¢¿¾Ãæ°ü¡¢Ïã³¦ºÍ¼å±ıµÈ£¬Í¨³£»áÅäÒÔ¿§·È»ò³ÈÖ­¡£\n5. ÈÈ¹·£ºÈÈ¹·ÊÇÒ»ÖÖ¿ì²ÍÊ³Æ·£¬ÓÉ¿¾Ãæ°üºÍÏã³¦×é³É£¬³£ÅäÓĞ½æÄ©¡¢·¬ÇÑ½´ºÍÊíÆ¬µÈ¡£\n\nµ±È»£¬ÕâÖ»ÊÇÃÀ¹úÊ³Æ·ÖĞµÄÒ»Ğ¡²¿·Ö£¬Ã¿¸öÖİºÍµØÇø¶¼ÓĞÆä¶ÀÌØµÄÊ³Æ·ÎÄ»¯£¬Äú¿ÉÒÔÔÚÂÃĞĞÊ±³¢ÊÔ²»Í¬µÄÊ³Æ·£¬ÌåÑéÃÀ¹úµÄÒûÊ³ÎÄ»¯¡£"
             }
         ]
     },
@@ -47,10 +53,10 @@ default_test_convs = [
                 "from": "assistant",
                 "value": "\nThought: \nAction: dns_record_lookup_for_viewdns\nAction Input: {\n  \"domain\": \"example.com\",\n  \"output\": \"json\",\n  \"recordtype\": \"A,AAAA,MX,NS,TXT\"\n}"
             },
-            {
-                "from": "function",
-                "value": "{\"error\": \"Message error...\", \"response\": \"There was an error processing your API key - it may be invalid or disabled.  Please try again later.  If the problem continues to occur please contact the webmaster.\"}"
-            },
+            # {
+            #     "from": "function",
+            #     "value": "{\"error\": \"Message error...\", \"response\": \"There was an error processing your API key - it may be invalid or disabled.  Please try again later.  If the problem continues to occur please contact the webmaster.\"}"
+            # },
             {
                 "from": "user",
                 "value": "This is not the first time you try this task, all previous trails failed.\nBefore you generate my thought for this state, I will first show you your previous actions for this state, and then you must generate actions that is different from all of them. Here are some previous actions candidates:\n[\n  {\n    \"name\": \"nslookup_for_dns_lookup\",\n    \"arguments\": \"{\\n  \\\"domain\\\": \\\"example.com\\\"\\n}\",\n    \"function_output\": \"{\\\"error\\\": \\\"\\\", \\\"response\\\": \\\"{'host': 'example.com', 'result': {'A': ['93.184.216.34'], 'AAAA': ['2606:2800:220:1:248:1893:25c8:1946'], 'MX': [{'exchange': '', 'priority': 0}], 'NS': ['a.iana-servers.net', 'b.iana-servers.net'], 'SOA': {'nsname': 'ns.icann.org', 'hostmaster': 'noc.dns.icann.org', 'serial': 2022091303, 'refresh': 7200, 'retry': 3600, 'expire': 1209600, 'minttl': 3600}, 'TXT': ['v=spf1 -all', 'wgyf8z8cgvm2qmxpnbnldrcltvk4xqfn']}}\\\"}\",\n    \"mento-carlo-action-value\": 0.0\n  }\n]\nagain, your former observation: {\"error\": \"Message error...\", \"response\": \"There was an error processing your API key - it may be invalid or disabled.  Please try again later.  If the problem continues to occur please contact the webmaster.\"}\n\nRemember you are now in the intermediate state of a trail, you will first analyze the now state and previous action candidates, then make actions that is different from all the previous."
@@ -59,20 +65,20 @@ default_test_convs = [
                 "from": "assistant",
                 "value": "\nThought: \nAction: nslookup_for_dns_lookup\nAction Input: {\n  \"domain\": \"example.com\"\n}"
             },
-            {
-                "from": "function",
-                "value": "{\"error\": \"\", \"response\": \"{'host': 'example.com', 'result': {'A': ['93.184.216.34'], 'AAAA': ['2606:2800:220:1:248:1893:25c8:1946'], 'MX': [{'exchange': '', 'priority': 0}], 'NS': ['a.iana-servers.net', 'b.iana-servers.net'], 'SOA': {'nsname': 'ns.icann.org', 'hostmaster': 'noc.dns.icann.org', 'serial': 2022091303, 'refresh': 7200, 'retry': 3600, 'expire': 1209600, 'minttl': 3600}, 'TXT': ['v=spf1 -all', 'wgyf8z8cgvm2qmxpnbnldrcltvk4xqfn']}}\"}"
-            },
-            {
-                "from": "assistant",
-                "value": "\nThought: \nAction: traceroute_for_viewdns\nAction Input: {\n  \"domain\": \"example.com\",\n  \"output\": \"json\"\n}"
-            }
+            # {
+            #     "from": "function",
+            #     "value": "{\"error\": \"\", \"response\": \"{'host': 'example.com', 'result': {'A': ['93.184.216.34'], 'AAAA': ['2606:2800:220:1:248:1893:25c8:1946'], 'MX': [{'exchange': '', 'priority': 0}], 'NS': ['a.iana-servers.net', 'b.iana-servers.net'], 'SOA': {'nsname': 'ns.icann.org', 'hostmaster': 'noc.dns.icann.org', 'serial': 2022091303, 'refresh': 7200, 'retry': 3600, 'expire': 1209600, 'minttl': 3600}, 'TXT': ['v=spf1 -all', 'wgyf8z8cgvm2qmxpnbnldrcltvk4xqfn']}}\"}"
+            # },
+            # {
+            #     "from": "assistant",
+            #     "value": "\nThought: \nAction: traceroute_for_viewdns\nAction Input: {\n  \"domain\": \"example.com\",\n  \"output\": \"json\"\n}"
+            # }
         ]
     },
 
 ]
 def test_preprocess():
-    # ## æ–‡ä»¶ä¸­è¯»å–å¯¹è¯æ•°æ®
+    # ## ÎÄ¼şÖĞ¶ÁÈ¡¶Ô»°Êı¾İ
     # path = "path/to/conversation/data"
     # with open(path, 'r', encoding='utf8') as f:
     #     raw_data = json.load(f)
@@ -81,21 +87,81 @@ def test_preprocess():
     #     # print(len(raw_data[0]["conversations"]))
     #     # print(raw_data)
     #######
-    ## é»˜è®¤æ•°æ®
+    ## Ä¬ÈÏÊı¾İ
     raw_data = default_test_convs[1:2]
     #######
 
-    tokenizer = AutoTokenizer.from_pretrained("Qwen/Qwen-7B", trust_remote_code=True, model_max_length=2048)
-    tokenizer.eos_token_id = tokenizer.eod_id
-    tokenizer.pad_token_id = tokenizer.special_tokens['<|extra_0|>']
+    tokenizer = AutoTokenizer.from_pretrained('/Users/admin/Desktop/models/Mini-InternVL-Chat-4B-V1-5', trust_remote_code=True, model_max_length=2048)
+    # tokenizer.eos_token_id = tokenizer.eod_id
+    # tokenizer.pad_token_id = tokenizer.special_tokens['<|extra_0|>']
     sources = [example["conversations"] for example in raw_data]
     ret = preprocess(sources, tokenizer)
     for key in ret.keys():
         ret[key] = ret[key].tolist()
-    print(tokenizer.decode([_ if _!= -100 else tokenizer.pad_token_id for _ in ret['labels'][0]]))
-    print(tokenizer.decode([_ if _ != -100 else tokenizer.pad_token_id for _ in ret['input_ids'][0]]))
+    print('labels', tokenizer.decode([_ if _!= -100 else tokenizer.pad_token_id for _ in ret['labels'][0]]))
+    print('input', tokenizer.decode([_ if _ != -100 else tokenizer.pad_token_id for _ in ret['input_ids'][0]]))
+    # with open("test_data.json", 'w', encoding='utf8') as f:
+    #     f.write(json.dumps(ret, ensure_ascii=False, indent=2))
+
+def test_InterVL_preprocess():
+    # ## ÎÄ¼şÖĞ¶ÁÈ¡¶Ô»°Êı¾İ
+    # path = "path/to/conversation/data"
+    # with open(path, 'r', encoding='utf8') as f:
+    #     raw_data = json.load(f)
+    #     # raw_data[0]["conversations"] = raw_data[0]["conversations"] + raw_data[1]["conversations"] + raw_data[2]["conversations"]
+    #     # raw_data = raw_data[:1]
+    #     # print(len(raw_data[0]["conversations"]))
+    #     # print(raw_data)
+    #######
+
+    ## Ä¬ÈÏÊı¾İ
+    raw_data = default_test_convs[0:1]
+    #######
+
+    tokenizer = AutoTokenizer.from_pretrained('/Users/admin/Desktop/models/Mini-InternVL-Chat-4B-V1-5', trust_remote_code=True, model_max_length=2048)
+    from fastchat.model.model_adapter import get_conv_template, get_conversation_template
+    from fastchat.conversation import SeparatorStyle, register_conv_template, Conversation
+
+    special_tokens_dict = {'additional_special_tokens': ['<|user|>', '<|assistant|>']}
+    num_added_toks = tokenizer.add_special_tokens(special_tokens_dict)
+    from transformers.tokenization_utils_base import PreTrainedTokenizerBase
+    from transformers.feature_extraction_sequence_utils import SequenceFeatureExtractor
+    print(isinstance(tokenizer, (PreTrainedTokenizerBase, SequenceFeatureExtractor)))
+
+    # register_conv_template(
+    #     Conversation(
+    #         name='phi3-chat',
+    #         system_template='<|system|>\n{system_message}<|end|>',
+    #         system_message='You are an AI assistant whose name is Phi-3.',
+    #         roles=('<|user|>\n', '<|assistant|>\n'),
+    #         sep_style=SeparatorStyle.NO_COLON_SINGLE,
+    #         sep='<|end|>',
+    #         stop_token_ids=[
+    #             2,
+    #             32000,
+    #             32007
+    #         ]
+    #     )
+    # )
+    class data_args:
+        num_image_token = 256
+        max_image_num = 2
+    conversation_template = get_conv_template('phi3-chat')
+    print(conversation_template.name)
+    # tokenizer.eos_token_id = tokenizer.eod_id
+    # tokenizer.pad_token_id = tokenizer.special_tokens['<|extra_0|>']
+    sources = [example["conversations"] for example in raw_data]
+    ret = preprocess(sources, tokenizer, conversation_template, data_args)
+    for key in ret.keys():
+        ret[key] = ret[key]
+    print('labels', tokenizer.decode([_ if _!= -100 else tokenizer.pad_token_id for _ in ret['labels'][0]]))
+    print('='*100)
+    print('input', tokenizer.decode([_ if _ != -100 else tokenizer.pad_token_id for _ in ret['input_ids'][0]]))
+
+    print(ret['input_ids'][0][:200])
     # with open("test_data.json", 'w', encoding='utf8') as f:
     #     f.write(json.dumps(ret, ensure_ascii=False, indent=2))
 
 if __name__ == "__main__":
-    test_preprocess(raw_data)
+    # test_preprocess()
+    test_InterVL_preprocess()
