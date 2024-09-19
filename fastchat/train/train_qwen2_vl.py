@@ -19,7 +19,7 @@ import json
 import math
 import os
 import pathlib
-from typing import Dict, Optional, Sequence
+from typing import Dict, Optional, List
 
 import numpy as np
 import torch
@@ -35,6 +35,7 @@ from qwen_vl_utils import process_vision_info
 
 ## for qwen-vl
 from PIL import ImageFile
+
 ImageFile.LOAD_TRUNCATED_IMAGES = True
 
 IGNORE_TOKEN_ID = LabelSmoother.ignore_index
@@ -74,6 +75,7 @@ class TrainingArguments(transformers.TrainingArguments):
         },
     )
 
+
 local_rank = None
 
 
@@ -92,9 +94,10 @@ def safe_save_model_for_hf_trainer(trainer: transformers.Trainer, output_dir: st
 
 
 def preprocess(
-    sources,
-    processor: transformers.Qwen2VLProcessor,
+        sources,
+        processor: transformers.Qwen2VLProcessor,
 ) -> Dict:
+    tokenizer = processor.tokenizer
     assistant_token = processor.tokenizer.encode("assistant")[0]
     # Apply prompt templates
 
@@ -109,16 +112,22 @@ def preprocess(
         )
         conversations.append(prompt)
         msg_image_inputs, msg_video_inputs = process_vision_info(msg)
-        image_splits.append(len(msg_image_inputs))
-        video_splits.append(len(msg_video_inputs))
-        image_inputs.extend(msg_image_inputs)
-        video_inputs.extend(msg_video_inputs)
+        if msg_image_inputs is not None:
+            image_splits.append(len(msg_image_inputs))
+            image_inputs.extend(msg_image_inputs)
+        else:
+            image_splits.append(0)
+        if msg_video_inputs is not None:
+            video_splits.append(len(msg_video_inputs))
+            video_inputs.extend(msg_video_inputs)
+        else:
+            video_splits.append(0)
 
     # Tokenize conversations
     inputs = processor(
-        conversations,
-        images=image_inputs,
-        videos=video_inputs,
+        text=conversations,
+        images=image_inputs if image_inputs else None,
+        videos=video_inputs if video_inputs else None,
         padding="max_length",
         max_length=processor.tokenizer.model_max_length,
         truncation=True,
@@ -127,39 +136,53 @@ def preprocess(
     input_ids = inputs.input_ids
     targets = input_ids.clone()
 
-    image_grid_thw = torch.split(inputs.image_grid_thw, image_splits, dim=0)
-    video_grid_thw = torch.split(inputs.video_grid_thw, video_splits, dim=0)
-    image_pixel_splits = [grid.prod(dim=-1).sum().item() for grid in image_grid_thw]
-    videos_pixel_splits = [grid.prod(dim=-1).sum().item() for grid in video_grid_thw]
-    pixel_values = torch.split(inputs.pixel_values, image_pixel_splits, dim=0)
-    pixel_values_videos = torch.split(inputs.pixel_values_videos, videos_pixel_splits, dim=0)
+    pixel_values = [None] * len(sources)
+    image_grid_thw = [None] * len(sources)
+    pixel_values_videos = [None] * len(sources)
+    video_grid_thw = [None] * len(sources)
 
-    # Mask targets. Only compute loss on the assistant outputs.
-    for source, conversation, target in zip(sources, conversations, targets):
+    if "image_grid_thw" in inputs:
+        image_grid_thw = torch.split(inputs.image_grid_thw, image_splits, dim=0)
+        image_pixel_splits = [grid.prod(dim=-1).sum().item() for grid in image_grid_thw]
+        pixel_values = torch.split(inputs.pixel_values, image_pixel_splits, dim=0)
+        pixel_values = [(_ if _.shape[0] > 0 else None) for _ in pixel_values]
+
+    if "video_grid_thw" in inputs:
+        video_grid_thw = torch.split(inputs.video_grid_thw, video_splits, dim=0)
+        videos_pixel_splits = [grid.prod(dim=-1).sum().item() for grid in video_grid_thw]
+        pixel_values_videos = torch.split(inputs.pixel_values_videos, videos_pixel_splits, dim=0)
+        pixel_values_videos = [(_ if _.shape[0] > 0 else None) for _ in pixel_values_videos]
+
+    # 1. Mask targets. Only compute loss on the assistant outputs.
+    # 2. truncation preprocess.
+    for i, (source, conversation, target) in enumerate(zip(sources, conversations, targets)):
         starts = (target == 151644).nonzero(as_tuple=False)
         ends = (target == 151645).nonzero(as_tuple=False)
-        if len(starts)==0 or len(ends)==0 or len(starts) == len(ends) and len(source) != len(starts) - 1:
+        if len(starts) == 0 or len(ends) == 0 or len(starts) == len(ends) and len(source) != len(starts):
             target[:] = IGNORE_TOKEN_ID
+            pixel_values[i] = None
+            image_grid_thw[i] = None
+            pixel_values_videos[i] = None
+            video_grid_thw[i] = None
             rank0_print(
                 f"WARNING: truncation or special tokenization mismatch: len(target): {len(target)} len(source): {len(source)}, len(starts): {len(starts)}, len(ends): {len(ends)}"
                 f" (ignored)"
             )
             continue
         for i, (start, end) in enumerate(zip(starts, ends)):
-            if target[start+1] == assistant_token:
+            if target[start + 1] == assistant_token:
                 target[start: start + 3] = IGNORE_TOKEN_ID
                 target[end + 1: end + 2] = IGNORE_TOKEN_ID
             else:
                 target[start: end + 2] = IGNORE_TOKEN_ID
         # target[:starts[0]] = IGNORE_TOKEN_ID
-        target[ends[-1]+1:] = IGNORE_TOKEN_ID
+        target[ends[-1] + 1:] = IGNORE_TOKEN_ID
 
         if False:  # Inspect and check the correctness of masking
             z = target.clone()
             z = torch.where(z == IGNORE_TOKEN_ID, tokenizer.pad_token_id, z)
             rank0_print(tokenizer.decode(z))
             print(tokenizer.decode(z))
-
 
     return dict(
         input_ids=input_ids,
@@ -175,13 +198,14 @@ def preprocess(
 class SupervisedDataset(Dataset):
     """Dataset for supervised fine-tuning."""
 
-    def __init__(self, raw_data, processor: transformers.Qwen2VLProcessor,):
+    def __init__(self, raw_data, processor: transformers.Qwen2VLProcessor, ):
         super(SupervisedDataset, self).__init__()
 
         rank0_print("Formatting inputs...")
         sources = [example["conversations"] for example in raw_data]
         data_dict = preprocess(sources, processor)
 
+        self.flag = 32
         self.input_ids = data_dict["input_ids"]
         self.pixel_values = data_dict["pixel_values"]
         self.image_grid_thw = data_dict["image_grid_thw"]
@@ -190,41 +214,52 @@ class SupervisedDataset(Dataset):
         self.labels = data_dict["labels"]
         self.attention_mask = data_dict["attention_mask"]
 
-
     def __len__(self):
         return len(self.input_ids)
 
     def __getitem__(self, i) -> Dict[str, torch.Tensor]:
-        return dict(
+        # if self.flag > 0:
+        #     self.flag -= 1
+        #     i = self.flag
+
+        inputs = dict(
             input_ids=self.input_ids[i],
             pixel_values=self.pixel_values[i],
             image_grid_thw=self.image_grid_thw[i],
             pixel_values_videos=self.pixel_values_videos[i],
             video_grid_thw=self.video_grid_thw[i],
             labels=self.labels[i],
-            attention_mask=self.attention_mask[i],
+            attention_mask=self.attention_mask[i]
         )
+        # for key in inputs.keys():
+        #     if inputs[key].shape[0] == 0:
+        #         inputs[key] = None
+        return inputs
 
 
 class LazySupervisedDataset(Dataset):
     """Dataset for supervised fine-tuning."""
 
-    def __init__(self, raw_data, processor: transformers.Qwen2VLProcessor,):
+    def __init__(self, raw_data, processor: transformers.Qwen2VLProcessor, ):
         super(LazySupervisedDataset, self).__init__()
-        self.tokenizer = processor
+        self.processor = processor
 
         rank0_print("Formatting inputs...Skip in lazy mode")
         self.raw_data = raw_data
         self.cached_data_dict = {}
+        self.flag = 32
 
     def __len__(self):
         return len(self.raw_data)
 
     def __getitem__(self, i) -> Dict[str, torch.Tensor]:
+        # if self.flag > 0:
+        #     self.flag -= 1
+        #     i = self.flag
         if i in self.cached_data_dict:
             return self.cached_data_dict[i]
 
-        ret = preprocess([self.raw_data[i]["messages"]], self.tokenizer)
+        ret = preprocess([self.raw_data[i]["messages"]], self.processor)
         ret = dict(
             input_ids=ret["input_ids"][0],
             pixel_values=ret['pixel_values'][0],
@@ -240,7 +275,7 @@ class LazySupervisedDataset(Dataset):
 
 
 def make_supervised_data_module(
-    processor: transformers.Qwen2VLProcessor, data_args
+        processor: transformers.Qwen2VLProcessor, data_args
 ) -> Dict:
     """Make dataset and collator for supervised fine-tuning."""
     dataset_cls = (
@@ -258,12 +293,43 @@ def make_supervised_data_module(
         for path in data_args.eval_data_path.split(','):
             eval_json.extend(json.load(open(path, "r", encoding='utf8')))
         # eval_json = json.load(open(data_args.eval_data_path, "r"))
-        eval_dataset = dataset_cls(eval_json, tokenizer=processor)
+        eval_dataset = dataset_cls(eval_json, processor=processor)
     else:
         eval_dataset = None
 
     return dict(train_dataset=train_dataset, eval_dataset=eval_dataset)
 
+
+class DataCollator:
+    def __call__(self, prepare_list: List[Dict]):
+
+        batched_input_ids = torch.stack([_['input_ids'] for _ in prepare_list], dim=0)
+        batched_labels = torch.stack([_['labels'] for _ in prepare_list], dim=0)
+        batched_attention_mask = torch.stack([_['attention_mask'] for _ in prepare_list], dim=0)
+        batched = dict(
+            input_ids=batched_input_ids,
+            labels=batched_labels,
+            attention_mask=batched_attention_mask,
+            pixel_values=None,
+            image_grid_thw=None,
+            pixel_values_videos=None,
+            video_grid_thw=None
+        )
+
+        vision_keys = ['pixel_values', 'image_grid_thw', 'pixel_values_videos', 'video_grid_thw']
+        for key in vision_keys:
+            value = [_[key] for _ in prepare_list if _[key] is not None]
+            if value:
+                batched[key] = torch.cat(value, dim=0)
+
+        return batched
+
+
+def freeze_module(module):
+    for p in module.parameters():
+        p.requires_grad = False
+    for child_module in module.children():
+        freeze_module(child_module)
 
 def train():
     global local_rank
@@ -275,19 +341,28 @@ def train():
     local_rank = training_args.local_rank
 
     model = Qwen2VLForConditionalGeneration.from_pretrained(
-        model_args.model_name_or_path, torch_dtype="auto", device_map="auto"
+        model_args.model_name_or_path,
+        # use_cache=False
     )
+    ## freeze visual
+    # freeze_module(model.visual)
 
-    min_pixels = 256 * 28 * 28
+    min_pixels = 128 * 28 * 28
     max_pixels = training_args.max_image_tokens * 28 * 28
-    processor = AutoProcessor.from_pretrained(training_args.model_name_or_path, min_pixels=min_pixels, max_pixels=max_pixels, model_max_length=training_args.model_max_length)
+    processor = AutoProcessor.from_pretrained(
+        model_args.model_name_or_path, min_pixels=min_pixels,
+        max_pixels=max_pixels, model_max_length=training_args.model_max_length
+    )
 
     # Load data
     data_module = make_supervised_data_module(processor=processor, data_args=data_args)
-
+    data_collator = DataCollator()
     # Start trainner
     trainer = Trainer(
-        model=model, tokenizer=processor.tokenizer, args=training_args, **data_module
+        model=model,
+        tokenizer=processor.tokenizer,
+        data_collator=data_collator,
+        args=training_args, **data_module
     )
     if list(pathlib.Path(training_args.output_dir).glob("checkpoint-*")):
         trainer.train(resume_from_checkpoint=True)
@@ -300,6 +375,7 @@ def train():
     final_model_path = os.path.join(training_args.output_dir, "final")
     # tokenizer.save_pretrained(final_model_path)
     trainer.save_model(final_model_path)
+    processor.save_pretrained(final_model_path)
 
 
 if __name__ == "__main__":
