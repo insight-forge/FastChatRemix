@@ -139,7 +139,7 @@ def preprocess(
                 target[end + 1: end + 2] = IGNORE_TOKEN_ID
             else:
                 target[start: end + 2] = IGNORE_TOKEN_ID
-        # target[:starts[0]] = IGNORE_TOKEN_ID
+        target[:starts[0]] = IGNORE_TOKEN_ID
         target[ends[-1]+1:] = IGNORE_TOKEN_ID
 
         if False:  # Inspect and check the correctness of masking
