@@ -94,8 +94,8 @@ def safe_save_model_for_hf_trainer(trainer: transformers.Trainer, output_dir: st
 
 
 def preprocess(
-        sources,
-        processor: transformers.Qwen2VLProcessor,
+    sources,
+    processor: transformers.Qwen2VLProcessor,
 ) -> Dict:
     tokenizer = processor.tokenizer
     assistant_token = processor.tokenizer.encode("assistant")[0]
@@ -175,7 +175,7 @@ def preprocess(
                 target[end + 1: end + 2] = IGNORE_TOKEN_ID
             else:
                 target[start: end + 2] = IGNORE_TOKEN_ID
-        # target[:starts[0]] = IGNORE_TOKEN_ID
+        target[:starts[0]] = IGNORE_TOKEN_ID
         target[ends[-1] + 1:] = IGNORE_TOKEN_ID
 
         if False:  # Inspect and check the correctness of masking
@@ -202,7 +202,7 @@ class SupervisedDataset(Dataset):
         super(SupervisedDataset, self).__init__()
 
         rank0_print("Formatting inputs...")
-        sources = [example["conversations"] for example in raw_data]
+        sources = [example["messages"] for example in raw_data]
         data_dict = preprocess(sources, processor)
 
         self.flag = 32
